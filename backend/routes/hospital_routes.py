@@ -1,16 +1,12 @@
-from flask import Blueprint, jsonify
-from models import Hospital, Availability
-from extensions.socket import socketio
+from flask import Blueprint
+from models import Hospital
+from utils.response import success_response
 
 
+hospital_bp = Blueprint("hospital", __name__)
 
-hospital_bp = Blueprint(
-    "hospital_bp",
-    __name__,
-    url_prefix="/api"
-)
 
-@hospital_bp.route("/hospitals", methods=["GET"])
+@hospital_bp.route("/", methods=["GET"])
 def get_hospitals():
     hospitals = Hospital.query.all()
     response = []
@@ -34,4 +30,7 @@ def get_hospitals():
             "status": status
         })
 
-    return jsonify(response)
+    return success_response(
+        message="Hospitals fetched successfully",
+        data=response
+    )

@@ -11,6 +11,8 @@ class Hospital(db.Model):
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
 
+    capabilities = db.Column(db.String(255))
+
     contact_number = db.Column(db.String(20), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
 

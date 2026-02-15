@@ -6,29 +6,36 @@ from config import Config
 from database.db import db
 from extensions.socketio_ext import socketio
 
+# Import Blueprints
 from routes.hospital_routes import hospital_bp
 from routes.admin_routes import admin_bp
+from routes.emergency_routes import emergency_bp
 
-# Import models so migrations detect them
-from models import Hospital, Ambulance, Availability
+# Import models for migrations
+from models import Hospital, Ambulance, Availability, EmergencyRequest
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    CORS(app)
+    # Enable CORS for frontend integration
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+    # Initialize extensions
     db.init_app(app)
     socketio.init_app(app)
     Migrate(app, db)
 
+    # Health check route
     @app.route("/")
     def home():
         return {"status": "Backend running successfully"}
 
-    app.register_blueprint(hospital_bp)
-    app.register_blueprint(admin_bp)
+    # Register Blueprints with versioning
+    app.register_blueprint(hospital_bp, url_prefix="/api/v1/hospital")
+    app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
+    app.register_blueprint(emergency_bp, url_prefix="/api/v1/emergency")
 
     return app
 
