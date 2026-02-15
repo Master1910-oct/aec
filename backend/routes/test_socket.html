@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <h2>Socket Test</h2>
+  <pre id="log"></pre>
+
+  <script>
+    const socket = io("http://127.0.0.1:5001");
+
+    socket.on("connect", () => {
+      document.getElementById("log").textContent += "Connected\n";
+    });
+    socket.on("hospital_added", (data) => {
+     console.log("New hospital:", data);
+    });
+
+
+    socket.on("hospital_update", (data) => {
+      document.getElementById("log").textContent +=
+        JSON.stringify(data, null, 2) + "\n";
+    });
+  </script>
+</body>
+</html>

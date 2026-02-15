@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Socket.IO Test</title>
+
+  <!-- Socket.IO client CDN -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+
+  <h2>Socket.IO Hospital Test</h2>
+  <p>Open console (F12) to see events</p>
+
+  <script>
+    // Connect to backend
+    const socket = io("http://127.0.0.1:5001");
+
+    socket.on("connect", () => {
+      console.log("✅ Connected to server:", socket.id);
+    });
+
+    socket.on("hospital_added", (data) => {
+      console.log("🏥 New hospital added:", data);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("❌ Disconnected from server");
+    });
+  </script>
+
+</body>
+</html>
