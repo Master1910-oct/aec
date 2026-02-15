@@ -10,8 +10,9 @@ from extensions.socketio_ext import socketio
 from routes.hospital_routes import hospital_bp
 from routes.admin_routes import admin_bp
 from routes.emergency_routes import emergency_bp
+from routes.dashboard_routes import dashboard_bp
 
-# Import models for migrations
+# Import models (required for migrations)
 from models import Hospital, Ambulance, Availability, EmergencyRequest
 
 
@@ -32,10 +33,11 @@ def create_app():
     def home():
         return {"status": "Backend running successfully"}
 
-    # Register Blueprints with versioning
+    # Register Blueprints (ONLY define prefix here)
     app.register_blueprint(hospital_bp, url_prefix="/api/v1/hospital")
     app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
     app.register_blueprint(emergency_bp, url_prefix="/api/v1/emergency")
+    app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
 
     return app
 
