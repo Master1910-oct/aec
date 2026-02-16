@@ -12,19 +12,17 @@ emergency_bp = Blueprint(
 )
 
 
+# ==========================================
 # 🚑 CREATE EMERGENCY
+# ==========================================
 @emergency_bp.route("/", methods=["POST"])
 def create_emergency():
     try:
         data = request.get_json()
 
-        # 🔎 Basic Validation
-        if not data or \
-           "patient_name" not in data or \
-           "latitude" not in data or \
-           "longitude" not in data or \
-           "emergency_type" not in data:
-
+        # ✅ Basic Validation
+        required_fields = ["patient_name", "latitude", "longitude", "emergency_type"]
+        if not data or not all(field in data for field in required_fields):
             return error_response(
                 "patient_name, latitude, longitude and emergency_type are required",
                 400
@@ -75,11 +73,15 @@ def create_emergency():
         return error_response(str(e), 500)
 
 
+# ==========================================
 # 📄 GET ALL EMERGENCIES
+# ==========================================
 @emergency_bp.route("/", methods=["GET"])
 def get_all_emergencies():
     try:
-        emergencies = EmergencyRequest.query.all()
+        emergencies = EmergencyRequest.query.order_by(
+            EmergencyRequest.created_at.desc()
+        ).all()
 
         response = []
         for e in emergencies:
@@ -104,25 +106,28 @@ def get_all_emergencies():
         return error_response(str(e), 500)
 
 
+# ==========================================
 # 🔄 UPDATE EMERGENCY STATUS
+# ==========================================
 @emergency_bp.route("/<int:emergency_id>/status", methods=["PATCH"])
 def update_emergency_status(emergency_id):
     try:
         data = request.get_json()
-        new_status = data.get("status")
 
-        if not new_status:
+        if not data or "status" not in data:
             return error_response("Status is required", 400)
+
+        new_status = data["status"].lower()
 
         emergency = EmergencyRequest.query.get(emergency_id)
 
         if not emergency:
             return error_response("Emergency not found", 404)
 
-        # 🏁 If completed → release resources
+        # ✅ If completed → release resources
         if new_status == "completed":
 
-            # 🚑 Release ambulance
+            # 🚑 Release ambulance properly
             if emergency.ambulance:
                 emergency.ambulance.status = "AVAILABLE"
 
@@ -131,6 +136,7 @@ def update_emergency_status(emergency_id):
                 emergency.hospital.availability.available_beds += 1
 
         emergency.status = new_status
+
         db.session.commit()
 
         return success_response(

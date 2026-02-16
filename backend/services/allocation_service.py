@@ -1,28 +1,42 @@
-from database.db import db
-from models import Hospital, Availability, Ambulance
 import math
+from database.db import db
+from models.hospital import Hospital
+from models.availability import Availability
+from models.ambulance import Ambulance
 
 
-# 📏 Haversine Distance Formula (KM)
+# ===============================
+# 📍 Haversine Distance Formula
+# ===============================
 def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371  # Earth radius in km
+    """
+    Calculate distance between two lat/lon points using Haversine formula
+    Returns distance in kilometers
+    """
+    R = 6371  # Earth radius in KM
 
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
 
     a = (
-        math.sin(dlat / 2) ** 2 +
-        math.cos(math.radians(lat1)) *
-        math.cos(math.radians(lat2)) *
-        math.sin(dlon / 2) ** 2
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
     )
 
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
     return R * c
 
 
-# 🏥 Allocate Nearest Hospital with Available Beds
+# ===============================
+# 🏥 Allocate Nearest Hospital
+# ===============================
 def allocate_hospital(emergency):
+    """
+    Allocates nearest active hospital with available beds
+    """
 
     hospitals = Hospital.query.filter_by(is_active=True).all()
 
@@ -41,41 +55,63 @@ def allocate_hospital(emergency):
                 emergency.latitude,
                 emergency.longitude,
                 hospital.latitude,
-                hospital.longitude
+                hospital.longitude,
             )
 
             if distance < min_distance:
                 min_distance = distance
                 nearest_hospital = hospital
 
-    if nearest_hospital:
+    if not nearest_hospital:
+        return None
 
-        # Reduce bed count
-        availability = Availability.query.filter_by(
-            hospital_id=nearest_hospital.hospital_id
-        ).first()
+    # Reduce available beds
+    availability = Availability.query.filter_by(
+        hospital_id=nearest_hospital.hospital_id
+    ).first()
 
-        availability.available_beds -= 1
+    availability.available_beds -= 1
 
-        # Assign hospital to emergency
-        emergency.hospital_id = nearest_hospital.hospital_id
+    # Attach hospital to emergency
+    emergency.hospital_id = nearest_hospital.hospital_id
 
-        return nearest_hospital
-
-    return None
+    return nearest_hospital
 
 
-# 🚑 Allocate First Available Ambulance
+# ===============================
+# 🚑 Allocate Nearest Ambulance
+# ===============================
 def allocate_ambulance(emergency):
+    """
+    Allocates nearest ambulance with status AVAILABLE
+    """
 
-    ambulance = Ambulance.query.filter_by(status="AVAILABLE").first()
+    # ✅ FIXED: Use status instead of is_available
+    ambulances = Ambulance.query.filter_by(status="AVAILABLE").all()
 
-    if ambulance:
+    nearest_ambulance = None
+    min_distance = float("inf")
 
-        ambulance.status = "ON_CALL"
+    for ambulance in ambulances:
 
-        emergency.ambulance_id = ambulance.ambulance_id
+        distance = calculate_distance(
+            emergency.latitude,
+            emergency.longitude,
+            ambulance.latitude,
+            ambulance.longitude,
+        )
 
-        return ambulance
+        if distance < min_distance:
+            min_distance = distance
+            nearest_ambulance = ambulance
 
-    return None
+    if not nearest_ambulance:
+        return None
+
+    # ✅ FIXED: Update status instead of boolean
+    nearest_ambulance.status = "ON_CALL"
+
+    # Attach ambulance to emergency
+    emergency.ambulance_id = nearest_ambulance.ambulance_id
+
+    return nearest_ambulance
