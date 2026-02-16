@@ -1,6 +1,7 @@
 from database.db import db
 from datetime import datetime
 
+
 class Hospital(db.Model):
     __tablename__ = "hospital"
 
@@ -12,15 +13,21 @@ class Hospital(db.Model):
     longitude = db.Column(db.Float, nullable=False)
 
     capabilities = db.Column(db.String(255))
-
     contact_number = db.Column(db.String(20), nullable=False)
-    is_active = db.Column(db.Boolean, default=True)
 
+    is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # 🔥 Replace old backref with back_populates
+    emergencies = db.relationship(
+        "EmergencyRequest",
+        back_populates="hospital",
+        cascade="all"
+    )
 
     availability = db.relationship(
         "Availability",
-        backref="hospital",
+        back_populates="hospital",
         uselist=False,
         cascade="all, delete-orphan"
     )

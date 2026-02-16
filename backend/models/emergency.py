@@ -11,15 +11,24 @@ class EmergencyRequest(db.Model):
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     emergency_type = db.Column(db.String(100), nullable=False)
-    status = db.Column(db.String(50), default="pending")
 
-    # 🔥 MUST MATCH YOUR REAL TABLE NAME: hospital
+    status = db.Column(
+        db.Enum(
+            "pending",
+            "allocated",
+            "in_progress",
+            "completed",
+            "cancelled",
+            name="emergency_status"
+        ),
+        default="pending"
+    )
+
     hospital_id = db.Column(
         db.Integer,
         db.ForeignKey("hospital.hospital_id")
     )
 
-    # Your real table name: ambulances
     ambulance_id = db.Column(
         db.Integer,
         db.ForeignKey("ambulances.ambulance_id")
@@ -27,6 +36,13 @@ class EmergencyRequest(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # Relationships
-    hospital = db.relationship("Hospital", backref="emergency_requests")
-    ambulance = db.relationship("Ambulance", backref="emergency_requests")
+    # Proper bidirectional relationships
+    hospital = db.relationship(
+        "Hospital",
+        back_populates="emergencies"
+    )
+
+    ambulance = db.relationship(
+        "Ambulance",
+        back_populates="emergencies"
+    )

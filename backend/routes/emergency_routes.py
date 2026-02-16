@@ -1,10 +1,7 @@
 from flask import Blueprint, request
 from database.db import db
 from models import EmergencyRequest
-from services.allocation_service import (
-    allocate_hospital,
-    allocate_ambulance
-)
+from services.allocation_service import allocate_hospital, allocate_ambulance
 from utils.response import success_response, error_response
 
 
@@ -25,25 +22,25 @@ def create_emergency():
         if not data or \
            "patient_name" not in data or \
            "latitude" not in data or \
-           "longitude" not in data:
+           "longitude" not in data or \
+           "emergency_type" not in data:
 
             return error_response(
-                "patient_name, latitude and longitude are required",
+                "patient_name, latitude, longitude and emergency_type are required",
                 400
             )
 
-        # 📝 Create Emergency (without commit)
+        # 📝 Create Emergency (no commit yet)
         emergency = EmergencyRequest(
             patient_name=data["patient_name"],
-            phone_number=data.get("phone_number"),
             latitude=data["latitude"],
             longitude=data["longitude"],
-            emergency_type=data.get("emergency_type"),
+            emergency_type=data["emergency_type"],
             status="pending"
         )
 
         db.session.add(emergency)
-        db.session.flush()  # Get emergency_id without committing
+        db.session.flush()  # Get ID before commit
 
         # 🏥 Allocate Hospital
         hospital = allocate_hospital(emergency)
@@ -57,13 +54,13 @@ def create_emergency():
             db.session.rollback()
             return error_response("No ambulance available", 400)
 
-        # ✅ Update Status
+        # ✅ Final Status
         emergency.status = "allocated"
 
         db.session.commit()
 
         return success_response(
-            message="Emergency created successfully",
+            message="Emergency created and resources allocated successfully",
             data={
                 "emergency_id": emergency.emergency_id,
                 "status": emergency.status,
@@ -91,6 +88,7 @@ def get_all_emergencies():
                 "patient_name": e.patient_name,
                 "latitude": e.latitude,
                 "longitude": e.longitude,
+                "emergency_type": e.emergency_type,
                 "status": e.status,
                 "hospital_id": e.hospital_id,
                 "ambulance_id": e.ambulance_id,
@@ -106,7 +104,7 @@ def get_all_emergencies():
         return error_response(str(e), 500)
 
 
-# 🔄 UPDATE EMERGENCY STATUS (Lifecycle)
+# 🔄 UPDATE EMERGENCY STATUS
 @emergency_bp.route("/<int:emergency_id>/status", methods=["PATCH"])
 def update_emergency_status(emergency_id):
     try:
@@ -121,14 +119,14 @@ def update_emergency_status(emergency_id):
         if not emergency:
             return error_response("Emergency not found", 404)
 
-        # 🏁 If case completed → release resources
+        # 🏁 If completed → release resources
         if new_status == "completed":
 
             # 🚑 Release ambulance
             if emergency.ambulance:
-                emergency.ambulance.is_available = True
+                emergency.ambulance.status = "AVAILABLE"
 
-            # 🏥 Increase hospital bed count
+            # 🏥 Increase hospital beds
             if emergency.hospital and emergency.hospital.availability:
                 emergency.hospital.availability.available_beds += 1
 

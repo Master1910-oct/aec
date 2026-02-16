@@ -1,5 +1,5 @@
 from database.db import db
-from datetime import datetime
+
 
 class Availability(db.Model):
     __tablename__ = "availability"
@@ -8,15 +8,13 @@ class Availability(db.Model):
 
     hospital_id = db.Column(
         db.Integer,
-        db.ForeignKey("hospital.hospital_id"),  # 👈 THIS WAS MISSING
-        nullable=False,
+        db.ForeignKey("hospital.hospital_id"),
         unique=True
     )
 
-    available_beds = db.Column(db.Integer, nullable=False, default=0)
+    available_beds = db.Column(db.Integer, nullable=False)
 
-    updated_at = db.Column(
-        db.DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow
+    hospital = db.relationship(
+        "Hospital",
+        back_populates="availability"
     )
