@@ -1,13 +1,16 @@
 from flask import Blueprint
 from models import Hospital
 from utils.response import success_response
-
+from utils.decorators import token_required, roles_required
 
 hospital_bp = Blueprint("hospital", __name__)
 
 
 @hospital_bp.route("/", methods=["GET"])
+@token_required
+@roles_required("admin", "dispatcher")
 def get_hospitals():
+
     hospitals = Hospital.query.all()
     response = []
 

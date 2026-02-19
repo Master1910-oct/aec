@@ -38,16 +38,26 @@ def allocate_hospital(emergency):
     Allocates nearest active hospital with available beds
     """
 
-    hospitals = Hospital.query.filter_by(is_active=True).all()
+    hospitals = (
+        Hospital.query
+        .filter_by(is_active=True)
+        .with_for_update()
+        .all()
+    )
+
 
     nearest_hospital = None
     min_distance = float("inf")
 
     for hospital in hospitals:
 
-        availability = Availability.query.filter_by(
-            hospital_id=hospital.hospital_id
-        ).first()
+        availability = (
+            Availability.query
+            .filter_by(hospital_id=hospital.hospital_id)
+            .with_for_update()
+            .first()
+        )
+
 
         if availability and availability.available_beds > 0:
 
@@ -87,7 +97,13 @@ def allocate_ambulance(emergency):
     """
 
     # ✅ FIXED: Use status instead of is_available
-    ambulances = Ambulance.query.filter_by(status="AVAILABLE").all()
+    ambulances = (
+        Ambulance.query
+        .filter_by(status="AVAILABLE")
+        .with_for_update()
+        .all()
+    )
+
 
     nearest_ambulance = None
     min_distance = float("inf")
