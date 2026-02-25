@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useAESStore } from "@/lib/store";
 import "leaflet/dist/leaflet.css";
@@ -25,8 +25,14 @@ const Polyline = dynamic(
   { ssr: false }
 );
 
+const Popup = dynamic(
+  () => import("react-leaflet").then((mod) => mod.Popup),
+  { ssr: false }
+);
+
 export default function AESMap() {
   const { ambulanceLocation, assignment } = useAESStore();
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     // Load leaflet only in browser
@@ -45,26 +51,54 @@ export default function AESMap() {
   }, []);
 
   return (
-    <MapContainer
-      center={ambulanceLocation}
-      zoom={13}
-      className="w-full h-full"
-    >
-      <TileLayer
-        attribution="&copy; OpenStreetMap contributors"
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-
-      <Marker position={ambulanceLocation} />
-
-      {assignment && (
-        <>
-          <Marker position={assignment.hospitalLocation} />
-          <Polyline
-            positions={[ambulanceLocation, assignment.hospitalLocation]}
-          />
-        </>
+    <div className="w-full min-h-[360px] h-full relative">
+      {!mapReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/60 z-10">
+          <div className="text-gray-700">Loading map…</div>
+        </div>
       )}
-    </MapContainer>
+
+      <MapContainer
+        center={[ambulanceLocation.lat, ambulanceLocation.lng]}
+        // Use a country-level zoom by default so India is visible
+        zoom={5}
+        className="w-full h-full"
+        whenCreated={(map) => {
+          setMapReady(true);
+          try {
+            if (assignment?.hospitalLocation) {
+              const bounds = [
+                [ambulanceLocation.lat, ambulanceLocation.lng],
+                assignment.hospitalLocation,
+              ];
+              // @ts-ignore fitBounds exists on leaflet map
+              map.fitBounds(bounds, { padding: [50, 50] });
+            }
+          } catch (e) {
+            // ignore
+          }
+        }}
+      >
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <Marker position={ambulanceLocation}>
+          <Popup>You</Popup>
+        </Marker>
+
+        {assignment && (
+          <>
+            <Marker position={assignment.hospitalLocation}>
+              <Popup>Hospital</Popup>
+            </Marker>
+            <Polyline
+              positions={[ambulanceLocation, assignment.hospitalLocation]}
+            />
+          </>
+        )}
+      </MapContainer>
+    </div>
   );
 }

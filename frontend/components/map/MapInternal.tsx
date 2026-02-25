@@ -8,8 +8,9 @@ export default function MapInternal() {
 
   return (
     <MapContainer
-      center={[13.0827, 80.2707]}
-      zoom={13}
+      // Default to India center and country-level zoom
+      center={[20.5937, 78.9629]}
+      zoom={5}
       style={{ height: "400px", width: "100%" }}
     >
       <TileLayer

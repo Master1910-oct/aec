@@ -16,6 +16,7 @@ interface Assignment {
 interface AESState {
   emergencies: Emergency[];
   assignment: Assignment | null;
+  ambulanceLocation: { lat: number; lng: number };
   logs: string[];
   connected: boolean;
 
@@ -23,11 +24,14 @@ interface AESState {
   setAssignment: (a: Assignment | null) => void;
   addLog: (log: string) => void;
   setConnection: (status: boolean) => void;
+  setAmbulanceLocation: (loc: { lat: number; lng: number }) => void;
 }
 
 export const useAESStore = create<AESState>((set) => ({
   emergencies: [],
   assignment: null,
+  // Default to India center so dashboards show India map by default
+  ambulanceLocation: { lat: 20.5937, lng: 78.9629 },
   logs: [],
   connected: false,
 
@@ -40,4 +44,5 @@ export const useAESStore = create<AESState>((set) => ({
     set((state) => ({ logs: [...state.logs, log] })),
 
   setConnection: (status) => set({ connected: status }),
+  setAmbulanceLocation: (loc) => set({ ambulanceLocation: loc }),
 }));
