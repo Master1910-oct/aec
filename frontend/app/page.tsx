@@ -1,20 +1,24 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
-    <div className="p-10 space-y-4">
-      <h1 className="text-3xl font-bold">
+    <div className="space-y-8">
+      <h1 className="text-4xl font-extrabold text-center">
         Smart Emergency Allocation System
       </h1>
 
-      <div className="space-x-4">
-        <a href="/admin" className="text-blue-600 underline">
-          Admin Dashboard
-        </a>
-        <a href="/ambulance" className="text-blue-600 underline">
-          Ambulance Panel
-        </a>
-        <a href="/hospital" className="text-blue-600 underline">
-          Hospital Panel
-        </a>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        {[
+          { href: "/admin", label: "Admin Dashboard" },
+          { href: "/ambulance", label: "Ambulance Panel" },
+          { href: "/hospital", label: "Hospital Panel" },
+        ].map((item) => (
+          <Link key={item.href} href={item.href} className="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition">
+            <h2 className="text-xl font-semibold text-center">
+              {item.label}
+            </h2>
+          </Link>
+        ))}
       </div>
     </div>
   );

@@ -1,13 +1,13 @@
 import { create } from "zustand";
 
-interface Emergency {
+export interface Emergency {
   id: number;
   type: string;
   location: { lat: number; lng: number };
   status: string;
 }
 
-interface Assignment {
+export interface Assignment {
   hospitalId: number;
   hospitalName: string;
   hospitalLocation: [number, number];
@@ -19,12 +19,14 @@ interface AESState {
   ambulanceLocation: { lat: number; lng: number };
   logs: string[];
   connected: boolean;
+  theme: 'light' | 'dark';
 
   addEmergency: (e: Emergency) => void;
   setAssignment: (a: Assignment | null) => void;
   addLog: (log: string) => void;
   setConnection: (status: boolean) => void;
   setAmbulanceLocation: (loc: { lat: number; lng: number }) => void;
+  toggleTheme: () => void;
 }
 
 export const useAESStore = create<AESState>((set) => ({
@@ -34,6 +36,7 @@ export const useAESStore = create<AESState>((set) => ({
   ambulanceLocation: { lat: 20.5937, lng: 78.9629 },
   logs: [],
   connected: false,
+  theme: 'light',
 
   addEmergency: (e) =>
     set((state) => ({ emergencies: [...state.emergencies, e] })),
@@ -45,4 +48,6 @@ export const useAESStore = create<AESState>((set) => ({
 
   setConnection: (status) => set({ connected: status }),
   setAmbulanceLocation: (loc) => set({ ambulanceLocation: loc }),
+  toggleTheme: () =>
+    set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
 }));
