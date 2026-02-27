@@ -19,7 +19,7 @@ export function DashboardLayout() {
         <header className="h-10 border-b border-border bg-card/50 flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-muted-foreground tracking-wider">
-              DELHI EMERGENCY NETWORK
+              EMERGENCY NETWORK
             </span>
           </div>
           <div className="flex items-center gap-4">

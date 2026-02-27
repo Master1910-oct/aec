@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
@@ -72,8 +70,10 @@
   }
 
   body {
-    background-color: #0f0b1a; /* dark background */
-    color: #e5e5e8; /* light foreground */
+    background-color: #0f0b1a;
+    /* dark background */
+    color: #e5e5e8;
+    /* light foreground */
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -87,12 +87,12 @@
 
   .glow-primary {
     box-shadow: 0 0 20px -5px hsl(var(--glow-primary) / 0.4),
-                0 0 40px -10px hsl(var(--glow-primary) / 0.2);
+      0 0 40px -10px hsl(var(--glow-primary) / 0.2);
   }
 
   .glow-emergency {
     box-shadow: 0 0 20px -5px hsl(var(--glow-emergency) / 0.5),
-                0 0 40px -10px hsl(var(--glow-emergency) / 0.3);
+      0 0 40px -10px hsl(var(--glow-emergency) / 0.3);
   }
 
   .glow-success {
@@ -100,17 +100,15 @@
   }
 
   .scanline {
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      hsl(var(--foreground) / 0.02) 2px,
-      hsl(var(--foreground) / 0.02) 4px
-    );
+    background: repeating-linear-gradient(0deg,
+        transparent,
+        transparent 2px,
+        hsl(var(--foreground) / 0.02) 2px,
+        hsl(var(--foreground) / 0.02) 4px);
   }
 
   .grid-pattern {
-    background-image: 
+    background-image:
       linear-gradient(hsl(var(--grid-line)) 1px, transparent 1px),
       linear-gradient(90deg, hsl(var(--grid-line)) 1px, transparent 1px);
     background-size: 40px 40px;
@@ -119,26 +117,42 @@
 
 @layer components {
   .status-dot {
-    @apply w-2.5 h-2.5 rounded-full;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
   }
 
   .status-dot-pulse {
-    @apply status-dot relative;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    position: relative;
   }
 
   .status-dot-pulse::after {
     content: '';
-    @apply absolute inset-0 rounded-full animate-ping;
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    animation: animate-ping;
     background: inherit;
     opacity: 0.5;
   }
 
   .data-readout {
-    @apply font-mono-data text-sm tracking-wider;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    letter-spacing: 0.05em;
   }
 
   .panel-header {
-    @apply text-xs uppercase tracking-[0.2em] text-muted-foreground font-semibold;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: hsl(var(--muted-foreground));
+    font-weight: 600;
   }
 
   .emergency-flash {
@@ -151,11 +165,14 @@
 }
 
 @keyframes emergency-flash {
-  0%, 100% { 
+
+  0%,
+  100% {
     background-color: hsl(var(--emergency) / 0.15);
     border-color: hsl(var(--emergency) / 0.4);
   }
-  50% { 
+
+  50% {
     background-color: hsl(var(--emergency) / 0.3);
     border-color: hsl(var(--emergency) / 0.8);
   }
@@ -166,6 +183,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -173,6 +191,13 @@
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
