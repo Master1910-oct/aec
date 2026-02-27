@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@layer base {
+  :root {
+    --background: hsl(220 20% 7%);
+    --foreground: hsl(210 20% 90%);
+
+    --card: hsl(220 18% 10%);
+    --card-foreground: hsl(210 20% 90%);
+
+    --popover: hsl(220 18% 12%);
+    --popover-foreground: hsl(210 20% 90%);
+
+    --primary: hsl(185 70% 50%);
+    --primary-foreground: hsl(220 20% 7%);
+
+    --secondary: hsl(220 15% 16%);
+    --secondary-foreground: hsl(210 20% 85%);
+
+    --muted: hsl(220 15% 14%);
+    --muted-foreground: hsl(215 15% 55%);
+
+    --accent: hsl(185 50% 20%);
+    --accent-foreground: hsl(185 70% 70%);
+
+    --destructive: hsl(0 80% 55%);
+    --destructive-foreground: hsl(0 0% 100%);
+
+    --border: hsl(220 15% 18%);
+    --input: hsl(220 15% 16%);
+    --ring: hsl(185 70% 50%);
+
+    --radius: 0.5rem;
+
+    /* Emergency system tokens */
+    --emergency: hsl(0 85% 55%);
+    --emergency-foreground: hsl(0 0% 100%);
+    --warning: hsl(38 92% 50%);
+    --warning-foreground: hsl(38 92% 10%);
+    --success: hsl(142 70% 45%);
+    --success-foreground: hsl(142 70% 10%);
+    --info: hsl(200 80% 55%);
+    --info-foreground: hsl(200 80% 10%);
+    --critical: hsl(330 80% 55%);
+    --critical-foreground: hsl(0 0% 100%);
+
+    /* Data readout */
+    --mono-surface: hsl(220 20% 9%);
+    --grid-line: hsl(220 15% 15%);
+    --glow-primary: 185 70% 50%;
+    --glow-emergency: 0 85% 55%;
+    --glow-success: 142 70% 45%;
+
+    --sidebar-background: hsl(220 20% 6%);
+    --sidebar-foreground: hsl(210 20% 75%);
+    --sidebar-primary: hsl(185 70% 50%);
+    --sidebar-primary-foreground: hsl(220 20% 7%);
+    --sidebar-accent: hsl(220 15% 12%);
+    --sidebar-accent-foreground: hsl(185 70% 70%);
+    --sidebar-border: hsl(220 15% 14%);
+    --sidebar-ring: hsl(185 70% 50%);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: #0f0b1a; /* dark background */
+    color: #e5e5e8; /* light foreground */
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .font-mono-data {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 20px -5px hsl(var(--glow-primary) / 0.4),
+                0 0 40px -10px hsl(var(--glow-primary) / 0.2);
+  }
+
+  .glow-emergency {
+    box-shadow: 0 0 20px -5px hsl(var(--glow-emergency) / 0.5),
+                0 0 40px -10px hsl(var(--glow-emergency) / 0.3);
+  }
+
+  .glow-success {
+    box-shadow: 0 0 15px -5px hsl(var(--glow-success) / 0.4);
+  }
+
+  .scanline {
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      hsl(var(--foreground) / 0.02) 2px,
+      hsl(var(--foreground) / 0.02) 4px
+    );
+  }
+
+  .grid-pattern {
+    background-image: 
+      linear-gradient(hsl(var(--grid-line)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid-line)) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+}
+
+@layer components {
+  .status-dot {
+    @apply w-2.5 h-2.5 rounded-full;
+  }
+
+  .status-dot-pulse {
+    @apply status-dot relative;
+  }
+
+  .status-dot-pulse::after {
+    content: '';
+    @apply absolute inset-0 rounded-full animate-ping;
+    background: inherit;
+    opacity: 0.5;
+  }
+
+  .data-readout {
+    @apply font-mono-data text-sm tracking-wider;
+  }
+
+  .panel-header {
+    @apply text-xs uppercase tracking-[0.2em] text-muted-foreground font-semibold;
+  }
+
+  .emergency-flash {
+    animation: emergency-flash 1s ease-in-out infinite;
+  }
+
+  .slide-up-enter {
+    animation: slide-up 0.4s ease-out;
+  }
+}
+
+@keyframes emergency-flash {
+  0%, 100% { 
+    background-color: hsl(var(--emergency) / 0.15);
+    border-color: hsl(var(--emergency) / 0.4);
+  }
+  50% { 
+    background-color: hsl(var(--emergency) / 0.3);
+    border-color: hsl(var(--emergency) / 0.8);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}

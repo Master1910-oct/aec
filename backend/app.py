@@ -28,8 +28,10 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # Enable CORS (for frontend integration)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # Enable CORS for everything (frontend runs on different port during development).
+    # previously we limited it to "/api/*"; the health-check at "/" also needs to be reachable,
+    # so just allow all origins globally.
+    CORS(app, resources={r"/*": {"origins": "*"}})
 
     # Initialize Extensions
     db.init_app(app)
