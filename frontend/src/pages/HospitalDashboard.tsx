@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useStore, BackendEmergency, BackendHospital } from '@/store/useStore';
-import { Building2, Bed, CheckCircle2, Minus, Plus, Clock, AlertTriangle, Loader2, Power } from 'lucide-react';
+import { Building2, Bed, CheckCircle2, Minus, Plus, Clock, AlertTriangle, Loader2, Power, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import LiveMap from '@/components/map/LiveMap';
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
@@ -321,6 +322,29 @@ export default function HospitalDashboard() {
               ))
               : <span className="text-xs text-muted-foreground">No specialities listed</span>}
           </div>
+        </div>
+      )}
+
+      {/* ── Live Map (Hospitals & Incoming Ambulances) ── */}
+      {hospital && (
+        <div className="rounded-lg border border-border overflow-hidden bg-card mt-4">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/20">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-primary" /> Tracking Map
+            </span>
+          </div>
+          <LiveMap
+            hospitals={[hospital]}
+            ambulances={activeEmergencies.filter(e => e.ambulance).map(e => ({
+              ambulance_id: e.ambulance!.ambulance_id,
+              vehicle_number: e.ambulance!.vehicle_number,
+              driver_name: e.ambulance!.driver_name,
+              latitude: e.latitude, // Using emergency lat/lon as ambulance location for simplicity if real-time ambulance coords aren't joined
+              longitude: e.longitude,
+              status: e.status === 'arrived' ? 'AVAILABLE' : 'ON_CALL'
+            }))}
+            className="w-full h-[350px]"
+          />
         </div>
       )}
     </div>

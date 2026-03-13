@@ -15,7 +15,7 @@ import {
 const NAV_ITEMS = [
   { to: '/', label: 'Command Center', icon: LayoutDashboard, roles: ['admin'] },
   { to: '/hospital', label: 'Hospital Panel', icon: Building2, roles: ['admin', 'hospital', 'ambulance'] },
-  { to: '/ambulance', label: 'Ambulance Unit', icon: Ambulance, roles: ['admin', 'hospital', 'ambulance'] },
+  { to: '/ambulance', label: 'Ambulance Unit', icon: Ambulance, roles: ['admin', 'ambulance'] },
 ];
 
 export function DashboardSidebar() {

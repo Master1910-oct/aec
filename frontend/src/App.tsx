@@ -132,12 +132,11 @@ const AppRoutes = () => {
 
           {/* Ambulance Unit:
               - admin     → full control
-              - ambulance → full control (dispatch + status)
-              - hospital  → read-only view */}
+              - ambulance → full control (dispatch + status) */}
           <Route
             path="/ambulance"
             element={
-              <RequireRole allow={['admin', 'hospital', 'ambulance']}>
+              <RequireRole allow={['admin', 'ambulance']}>
                 <AmbulancePanel />
               </RequireRole>
             }
