@@ -9,10 +9,7 @@ from models.ambulance import Ambulance
 # 📍 Haversine Distance Formula
 # ===============================
 def calculate_distance(lat1, lon1, lat2, lon2):
-    """
-    Calculate distance between two lat/lon points using Haversine formula
-    Returns distance in kilometers
-    """
+    """Return distance in kilometres between two lat/lon points."""
     R = 6371  # Earth radius in KM
 
     dlat = math.radians(lat2 - lat1)
@@ -26,7 +23,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     )
 
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
     return R * c
 
 
@@ -35,7 +31,10 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # ===============================
 def allocate_hospital(emergency):
     """
-    Allocates nearest active hospital with available beds
+    Allocates nearest active hospital that:
+    1. Has available beds
+    2. Supports the emergency type (speciality match)
+    Falls back to any available hospital if no speciality match found.
     """
 
     hospitals = (
@@ -45,32 +44,44 @@ def allocate_hospital(emergency):
         .all()
     )
 
+    emergency_type = (emergency.emergency_type or "").strip().lower()
 
-    nearest_hospital = None
-    min_distance = float("inf")
+    def _pick_nearest(candidates):
+        nearest = None
+        min_distance = float("inf")
 
-    for hospital in hospitals:
-
-        availability = (
-            Availability.query
-            .filter_by(hospital_id=hospital.hospital_id)
-            .with_for_update()
-            .first()
-        )
-
-
-        if availability and availability.available_beds > 0:
-
-            distance = calculate_distance(
-                emergency.latitude,
-                emergency.longitude,
-                hospital.latitude,
-                hospital.longitude,
+        for hospital in candidates:
+            availability = (
+                Availability.query
+                .filter_by(hospital_id=hospital.hospital_id)
+                .with_for_update()
+                .first()
             )
 
-            if distance < min_distance:
-                min_distance = distance
-                nearest_hospital = hospital
+            if availability and availability.available_beds > 0:
+                distance = calculate_distance(
+                    emergency.latitude,
+                    emergency.longitude,
+                    hospital.latitude,
+                    hospital.longitude,
+                )
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest = hospital
+
+        return nearest
+
+    # First pass: match by speciality
+    speciality_matched = [
+        h for h in hospitals
+        if emergency_type in h.get_specialities_list()
+    ]
+
+    nearest_hospital = _pick_nearest(speciality_matched)
+
+    # Fallback: any available hospital
+    if not nearest_hospital:
+        nearest_hospital = _pick_nearest(hospitals)
 
     if not nearest_hospital:
         return None
@@ -80,7 +91,8 @@ def allocate_hospital(emergency):
         hospital_id=nearest_hospital.hospital_id
     ).first()
 
-    availability.available_beds -= 1
+    if availability:
+        availability.available_beds -= 1
 
     # Attach hospital to emergency
     emergency.hospital_id = nearest_hospital.hospital_id
@@ -89,45 +101,49 @@ def allocate_hospital(emergency):
 
 
 # ===============================
-# 🚑 Allocate Nearest Ambulance
+# 🚑 Allocate Ambulance
 # ===============================
-def allocate_ambulance(emergency):
+def allocate_ambulance(emergency, ambulance_id=None):
     """
-    Allocates nearest ambulance with status AVAILABLE
+    If ambulance_id is provided (ambulance-role submission), use that ambulance.
+    Otherwise fall back to nearest available ambulance by distance.
     """
 
-    # ✅ FIXED: Use status instead of is_available
-    ambulances = (
-        Ambulance.query
-        .filter_by(status="AVAILABLE")
-        .with_for_update()
-        .all()
-    )
-
-
-    nearest_ambulance = None
-    min_distance = float("inf")
-
-    for ambulance in ambulances:
-
-        distance = calculate_distance(
-            emergency.latitude,
-            emergency.longitude,
-            ambulance.latitude,
-            ambulance.longitude,
+    if ambulance_id:
+        ambulance = (
+            Ambulance.query
+            .filter_by(ambulance_id=ambulance_id, status="AVAILABLE")
+            .with_for_update()
+            .first()
+        )
+    else:
+        ambulances = (
+            Ambulance.query
+            .filter_by(status="AVAILABLE")
+            .with_for_update()
+            .all()
         )
 
-        if distance < min_distance:
-            min_distance = distance
-            nearest_ambulance = ambulance
+        nearest_ambulance = None
+        min_distance = float("inf")
 
-    if not nearest_ambulance:
+        for amb in ambulances:
+            distance = calculate_distance(
+                emergency.latitude,
+                emergency.longitude,
+                amb.latitude,
+                amb.longitude,
+            )
+            if distance < min_distance:
+                min_distance = distance
+                nearest_ambulance = amb
+
+        ambulance = nearest_ambulance
+
+    if not ambulance:
         return None
 
-    # ✅ FIXED: Update status instead of boolean
-    nearest_ambulance.status = "ON_CALL"
+    ambulance.status = "ON_CALL"
+    emergency.ambulance_id = ambulance.ambulance_id
 
-    # Attach ambulance to emergency
-    emergency.ambulance_id = nearest_ambulance.ambulance_id
-
-    return nearest_ambulance
+    return ambulance

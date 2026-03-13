@@ -21,9 +21,20 @@ def verify_password(password, hashed_password):
 # =========================
 
 def generate_token(user):
+    """
+    Generates a JWT containing user identity.
+    entity_id = hospital_id (for hospital role) or ambulance_id (for ambulance role).
+    """
+    entity_id = None
+    if user.role == "hospital" and user.hospital:
+        entity_id = user.hospital.hospital_id
+    elif user.role == "ambulance" and user.ambulance:
+        entity_id = user.ambulance.ambulance_id
+
     payload = {
         "user_id": user.user_id,
         "role": user.role,
+        "entity_id": entity_id,
         "exp": datetime.utcnow() + timedelta(hours=8)
     }
 

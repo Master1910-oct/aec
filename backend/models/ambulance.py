@@ -7,6 +7,7 @@ class Ambulance(db.Model):
 
     ambulance_id = db.Column(db.Integer, primary_key=True)
     vehicle_number = db.Column(db.String(50), unique=True, nullable=False)
+    driver_name = db.Column(db.String(100), nullable=True)
 
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
@@ -27,8 +28,24 @@ class Ambulance(db.Model):
         onupdate=datetime.utcnow
     )
 
-    # 🔥 Replace old backref with back_populates
+    # Link to the ambulance operator's user account
+    user_id = db.Column(db.Integer, db.ForeignKey("users.user_id"), nullable=True, unique=True)
+
+    # Relationships
     emergencies = db.relationship(
         "EmergencyRequest",
         back_populates="ambulance"
     )
+
+    user = db.relationship("User", backref=db.backref("ambulance", uselist=False))
+
+    def to_dict(self):
+        return {
+            "ambulance_id": self.ambulance_id,
+            "vehicle_number": self.vehicle_number,
+            "driver_name": self.driver_name,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "status": self.status,
+            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
+        }

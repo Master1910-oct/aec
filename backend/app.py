@@ -28,9 +28,7 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # Enable CORS for everything (frontend runs on different port during development).
-    # previously we limited it to "/api/*"; the health-check at "/" also needs to be reachable,
-    # so just allow all origins globally.
+    # Enable CORS globally (frontend runs on different port during development)
     CORS(app, resources={r"/*": {"origins": "*"}})
 
     # Initialize Extensions
@@ -49,14 +47,13 @@ def create_app():
     # Register Blueprints
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(hospital_bp, url_prefix="/api/v1/hospital")
-    app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
-    app.register_blueprint(emergency_bp, url_prefix="/api/v1/emergency")
+    app.register_blueprint(admin_bp)            # admin_bp already has /api/v1/admin prefix
+    app.register_blueprint(emergency_bp)        # emergency_bp already has /api/v1/emergency prefix
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
 
-    # 🔥 Start SLA Monitor Thread (ONLY ONCE)
-    thread = threading.Thread(target=start_sla_monitor, args=(app,))
-    thread.daemon = True
-    thread.start()
+    # Temporary setup route — remove after first use
+    from routes.setup_routes import setup_bp
+    app.register_blueprint(setup_bp, url_prefix="/api/v1")
 
     return app
 
@@ -64,6 +61,11 @@ def create_app():
 # Application Entry Point
 if __name__ == "__main__":
     app = create_app()
+
+    # Start SLA Monitor Thread (ONLY ONCE)
+    thread = threading.Thread(target=start_sla_monitor, args=(app,))
+    thread.daemon = True
+    thread.start()
 
     socketio.run(
         app,

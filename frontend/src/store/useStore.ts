@@ -1,151 +1,351 @@
 import { create } from 'zustand';
-import type { Ambulance, Hospital, Assignment, SystemStats, EmergencyRequest, EngineEvent } from '@/types';
-import { registerStoreActions, processEmergencyRequest, confirmAssignment, rejectAssignment, adminOverride, cancelEmergency } from '@/services/assignmentManager';
-import { eventBus } from '@/services/eventBus';
+import { api } from '@/lib/api';
+import { socket } from '@/lib/socket';
 
-interface AppState {
-  ambulances: Ambulance[];
-  hospitals: Hospital[];
-  assignments: Assignment[];
-  emergencyRequests: EmergencyRequest[];
-  engineEvents: EngineEvent[];
-  stats: SystemStats;
-  activeRole: 'admin' | 'hospital' | 'ambulance';
-  selectedHospitalId: string | null;
-  selectedAmbulanceId: string | null;
-  setActiveRole: (role: 'admin' | 'hospital' | 'ambulance') => void;
-  setSelectedHospital: (id: string | null) => void;
-  setSelectedAmbulance: (id: string | null) => void;
-  updateHospitalBeds: (id: string, field: 'availableBeds' | 'icuAvailable', value: number) => void;
-  toggleHospitalReadiness: (id: string) => void;
-  updateAssignmentStatus: (id: string, status: Assignment['status']) => void;
-  // Engine actions
-  submitEmergency: (request: EmergencyRequest) => void;
-  handleConfirm: (requestId: string, assignmentId: string) => void;
-  handleReject: (requestId: string, assignmentId: string, hospitalId: string) => void;
-  handleAdminOverride: (requestId: string, hospitalId: string) => void;
-  handleCancelEmergency: (requestId: string) => void;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface CurrentUser {
+  user_id: number;
+  name: string;
+  email: string;
+  role: 'admin' | 'hospital' | 'ambulance' | 'dispatcher';
+  entity_id: number | null;
 }
 
-const mockAmbulances: Ambulance[] = [
-  { id: 'AMB-001', callSign: 'MEDIC-01', status: 'en-route', location: { lat: 13.0827, lng: 80.2707 }, crew: ['Dr. Ramesh', 'EMT Murugan'], vehicleType: 'ALS', currentAssignment: 'ASG-001', eta: 8, lastUpdated: new Date() },
-  { id: 'AMB-002', callSign: 'MEDIC-02', status: 'available', location: { lat: 13.0674, lng: 80.2376 }, crew: ['Dr. Lakshmi', 'EMT Karthik'], vehicleType: 'BLS', lastUpdated: new Date() },
-  { id: 'AMB-003', callSign: 'MEDIC-03', status: 'transporting', location: { lat: 13.1067, lng: 80.2847 }, crew: ['Dr. Priya', 'EMT Senthil'], vehicleType: 'ALS', currentAssignment: 'ASG-002', eta: 12, lastUpdated: new Date() },
-  { id: 'AMB-004', callSign: 'RESCUE-01', status: 'at-scene', location: { lat: 13.0475, lng: 80.2090 }, crew: ['Dr. Sundar', 'EMT Anand'], vehicleType: 'CCT', currentAssignment: 'ASG-003', eta: 5, lastUpdated: new Date() },
-  { id: 'AMB-005', callSign: 'RESCUE-02', status: 'available', location: { lat: 13.1200, lng: 80.2300 }, crew: ['Dr. Kavitha', 'EMT Raja'], vehicleType: 'BLS', lastUpdated: new Date() },
-  { id: 'AMB-006', callSign: 'MEDIC-04', status: 'offline', location: { lat: 13.0350, lng: 80.2500 }, crew: ['Dr. Ganesh', 'EMT Velu'], vehicleType: 'ALS', lastUpdated: new Date() },
-];
+export interface BackendEmergency {
+  emergency_id: number;
+  patient_name: string | null;
+  accident_description: string | null;
+  latitude: number;
+  longitude: number;
+  emergency_type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  status: string;
+  acknowledged: boolean;
+  hospital_id: number | null;
+  ambulance_id: number | null;
+  hospital: {
+    hospital_id: number;
+    name: string;
+    address: string;
+    contact_number: string;
+    latitude: number;
+    longitude: number;
+  } | null;
+  ambulance: {
+    ambulance_id: number;
+    vehicle_number: string;
+    driver_name: string;
+  } | null;
+  created_at: string | null;
+  sla_deadline: string | null;
+  is_overdue: boolean;
+}
 
-const mockHospitals: Hospital[] = [
-  { id: 'HSP-001', name: 'Rajiv Gandhi GH', code: 'RGGH', location: { lat: 13.0878, lng: 80.2785 }, status: 'available', totalBeds: 120, availableBeds: 34, icuBeds: 20, icuAvailable: 5, erCapacity: 30, erOccupied: 18, readiness: true, specialties: ['Trauma', 'Cardiology', 'Neurology'], capabilities: ['cardiac', 'trauma', 'stroke', 'general'], reliabilityScore: 0.92, contactNumber: '+91-44-25305000', lastUpdated: new Date() },
-  { id: 'HSP-002', name: 'Stanley Medical College Hospital', code: 'SMC', location: { lat: 13.1130, lng: 80.2870 }, status: 'busy', totalBeds: 200, availableBeds: 12, icuBeds: 30, icuAvailable: 2, erCapacity: 40, erOccupied: 35, readiness: true, specialties: ['General Surgery', 'Orthopedics'], capabilities: ['trauma', 'burns', 'general'], reliabilityScore: 0.85, contactNumber: '+91-44-25281325', lastUpdated: new Date() },
-  { id: 'HSP-003', name: 'Apollo Hospitals Greams Road', code: 'APL-GR', location: { lat: 13.0600, lng: 80.2500 }, status: 'available', totalBeds: 80, availableBeds: 22, icuBeds: 15, icuAvailable: 7, erCapacity: 20, erOccupied: 10, readiness: true, specialties: ['Cardiology', 'Oncology', 'Pediatrics'], capabilities: ['cardiac', 'respiratory', 'pediatric', 'general'], reliabilityScore: 0.95, contactNumber: '+91-44-28293333', lastUpdated: new Date() },
-  { id: 'HSP-004', name: 'Kilpauk Medical College Hospital', code: 'KMC', location: { lat: 13.0785, lng: 80.2420 }, status: 'full', totalBeds: 150, availableBeds: 0, icuBeds: 25, icuAvailable: 0, erCapacity: 35, erOccupied: 35, readiness: false, specialties: ['Emergency', 'Burns'], capabilities: ['burns', 'trauma', 'general'], reliabilityScore: 0.78, contactNumber: '+91-44-26432263', lastUpdated: new Date() },
-];
+export interface BackendHospital {
+  hospital_id: number;
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  contact_number: string;
+  specialities: string[];
+  available_beds: number;
+  is_active: boolean;
+  status: 'GREEN' | 'RED';
+}
 
-const mockAssignments: Assignment[] = [
-  { id: 'ASG-001', ambulanceId: 'AMB-001', hospitalId: 'HSP-001', emergencyRequestId: 'ER-001', patientInfo: { age: 45, gender: 'Male', condition: 'Cardiac Arrest', emergencyLevel: 'critical' }, status: 'accepted', eta: 8, distance: 4.2, createdAt: new Date(Date.now() - 600000), updatedAt: new Date() },
-  { id: 'ASG-002', ambulanceId: 'AMB-003', hospitalId: 'HSP-003', emergencyRequestId: 'ER-002', patientInfo: { age: 28, gender: 'Female', condition: 'Road Accident - Multiple Fractures', emergencyLevel: 'high' }, status: 'pending', eta: 12, distance: 6.8, createdAt: new Date(Date.now() - 300000), updatedAt: new Date() },
-  { id: 'ASG-003', ambulanceId: 'AMB-004', hospitalId: 'HSP-002', emergencyRequestId: 'ER-003', patientInfo: { age: 67, gender: 'Male', condition: 'Stroke - Left Hemiparesis', emergencyLevel: 'critical' }, status: 'accepted', eta: 5, distance: 2.1, createdAt: new Date(Date.now() - 900000), updatedAt: new Date() },
-];
+export interface BackendAmbulance {
+  ambulance_id: number;
+  vehicle_number: string;
+  driver_name: string | null;
+  latitude: number;
+  longitude: number;
+  status: 'AVAILABLE' | 'ON_CALL' | 'MAINTENANCE';
+  last_updated: string | null;
+}
+
+export interface SystemStats {
+  total_emergencies: number;
+  pending: number;
+  allocated: number;
+  en_route: number;
+  completed: number;
+  escalated: number;
+  sla_breached: number;
+  total_ambulances: number;
+  available_ambulances: number;
+  on_call_ambulances: number;
+  total_hospitals: number;
+  available_hospitals: number;
+}
+
+export interface AdminUser {
+  user_id: number;
+  name: string;
+  email: string;
+  role: string;
+  entity_id: number | null;
+  created_at: string | null;
+}
+
+export interface SlaBreachEvent {
+  emergency_id: number;
+  severity: string;
+  emergency_type: string;
+  sla_deadline: string | null;
+  message: string;
+  received_at: string;
+}
+
+interface AppState {
+  // Identity
+  currentUser: CurrentUser | null;
+  activeRole: 'admin' | 'hospital' | 'ambulance';
+
+  // Data
+  emergencies: BackendEmergency[];
+  hospitals: BackendHospital[];
+  ambulances: BackendAmbulance[];
+  stats: SystemStats | null;
+  adminUsers: AdminUser[];
+  slaBreaches: SlaBreachEvent[];
+
+  // Actions — identity
+  setCurrentUser: (u: CurrentUser | null) => void;
+  setActiveRole: (r: 'admin' | 'hospital' | 'ambulance') => void;
+  fetchMe: () => Promise<CurrentUser | null>;
+
+  // Actions — data fetching
+  fetchEmergencies: () => Promise<void>;
+  fetchHospitals: () => Promise<void>;
+  fetchAmbulances: () => Promise<void>;
+  fetchDashboardStats: () => Promise<void>;
+  fetchHospitalEmergencies: (hospitalId: number) => Promise<{ active: BackendEmergency[]; resolved: BackendEmergency[] }>;
+  fetchAdminUsers: () => Promise<void>;
+  fetchMyHospital: () => Promise<BackendHospital | null>;
+
+  // Actions — ambulance
+  submitEmergency: (payload: {
+    accident_description: string;
+    emergency_type: string;
+    severity: string;
+    latitude: number;
+    longitude: number;
+  }) => Promise<BackendEmergency>;
+  updateEmergencyStatus: (emergencyId: number, status: string) => Promise<void>;
+
+  // Actions — hospital
+  acknowledgeEmergency: (emergencyId: number) => Promise<void>;
+  updateBeds: (hospitalId: number, beds: number) => Promise<void>;
+
+  // Actions — admin
+  createUser: (payload: { name: string; email: string; password: string; role: string; entity_id?: number }) => Promise<void>;
+  deactivateUser: (userId: number) => Promise<void>;
+
+  // Actions — auth
+  logout: () => void;
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useStore = create<AppState>((set, get) => {
-  // Register store actions for the assignment manager
-  registerStoreActions({
-    getHospitals: () => get().hospitals,
-    updateEmergencyRequest: (id, updates) =>
-      set((s) => ({
-        emergencyRequests: s.emergencyRequests.map((r) =>
-          r.id === id ? { ...r, ...updates } : r
-        ),
-      })),
-    createAssignment: (assignment) =>
-      set((s) => ({ assignments: [...s.assignments, assignment] })),
-    updateAssignment: (id, updates) =>
-      set((s) => ({
-        assignments: s.assignments.map((a) =>
-          a.id === id ? { ...a, ...updates } : a
-        ),
-      })),
-    updateHospitalReliability: (id, score) =>
-      set((s) => ({
-        hospitals: s.hospitals.map((h) =>
-          h.id === id ? { ...h, reliabilityScore: score } : h
-        ),
-      })),
-    updateAmbulanceStatus: (id, status) =>
-      set((s) => ({
-        ambulances: s.ambulances.map((a) =>
-          a.id === id ? { ...a, status: status as Ambulance['status'], lastUpdated: new Date() } : a
-        ),
-      })),
+
+  // 🔌 Socket listeners (set up once)
+  socket.on('emergency_allocated', (data: any) => {
+    console.log('WS: emergency_allocated', data);
+    get().fetchEmergencies(); // Refresh emergency list
   });
 
-  // Listen to all engine events and store them
-  eventBus.onAll((event) => {
-    set((s) => ({
-      engineEvents: [...s.engineEvents.slice(-99), event],
+  socket.on('emergency_acknowledged', (data: any) => {
+    console.log('WS: emergency_acknowledged', data);
+    // Update local emergency acknowledged flag
+    set(s => ({
+      emergencies: s.emergencies.map(e =>
+        e.emergency_id === data.emergency_id ? { ...e, acknowledged: true } : e
+      )
+    }));
+  });
+
+  socket.on('emergency_status_updated', (data: any) => {
+    console.log('WS: emergency_status_updated', data);
+    set(s => ({
+      emergencies: s.emergencies.map(e =>
+        e.emergency_id === data.emergency_id ? { ...e, status: data.new_status } : e
+      )
+    }));
+  });
+
+  socket.on('sla_breach', (data: any) => {
+    console.log('WS: sla_breach', data);
+    set(s => ({
+      slaBreaches: [
+        { ...data, received_at: new Date().toISOString() },
+        ...s.slaBreaches,
+      ]
+    }));
+  });
+
+  socket.on('availability_updated', (data: any) => {
+    set(s => ({
+      hospitals: s.hospitals.map(h =>
+        h.hospital_id === data.hospital_id
+          ? { ...h, available_beds: data.available_beds, status: data.status }
+          : h
+      )
     }));
   });
 
   return {
-    ambulances: mockAmbulances,
-    hospitals: mockHospitals,
-    assignments: mockAssignments,
-    emergencyRequests: [],
-    engineEvents: [],
-    stats: {
-      totalAmbulances: 6,
-      activeAmbulances: 4,
-      totalHospitals: 4,
-      availableHospitals: 2,
-      pendingAssignments: 1,
-      completedToday: 23,
-      avgResponseTime: 8.4,
-      criticalAlerts: 2,
-    },
+    currentUser: null,
     activeRole: 'admin',
-    selectedHospitalId: 'HSP-001',
-    selectedAmbulanceId: 'AMB-001',
-    setActiveRole: (role) => set({ activeRole: role }),
-    setSelectedHospital: (id) => set({ selectedHospitalId: id }),
-    setSelectedAmbulance: (id) => set({ selectedAmbulanceId: id }),
-    updateHospitalBeds: (id, field, value) =>
-      set((state) => ({
-        hospitals: state.hospitals.map((h) =>
-          h.id === id ? { ...h, [field]: value, lastUpdated: new Date() } : h
-        ),
-      })),
-    toggleHospitalReadiness: (id) =>
-      set((state) => ({
-        hospitals: state.hospitals.map((h) =>
-          h.id === id ? { ...h, readiness: !h.readiness, lastUpdated: new Date() } : h
-        ),
-      })),
-    updateAssignmentStatus: (id, status) =>
-      set((state) => ({
-        assignments: state.assignments.map((a) =>
-          a.id === id ? { ...a, status, updatedAt: new Date() } : a
-        ),
-      })),
+    emergencies: [],
+    hospitals: [],
+    ambulances: [],
+    stats: null,
+    adminUsers: [],
+    slaBreaches: [],
 
-    // Engine-integrated actions
-    submitEmergency: (request) => {
-      set((s) => ({ emergencyRequests: [...s.emergencyRequests, request] }));
-      eventBus.emit('emergency_created', { requestId: request.id, type: request.emergencyType, severity: request.severityScore });
-      processEmergencyRequest(request);
+    // ── Identity ────────────────────────────────────────────────────────────
+    setCurrentUser: (u) => set({ currentUser: u }),
+    setActiveRole: (r) => set({ activeRole: r }),
+
+    fetchMe: async () => {
+      try {
+        const res = await api.get<{ data: CurrentUser }>('/api/v1/auth/me');
+        const user = res.data;
+        set({ currentUser: user, activeRole: user.role as any });
+
+        // Join the appropriate WebSocket room
+        if (user.role === 'admin') {
+          socket.emit('join_admin');
+        } else if (user.role === 'hospital' && user.entity_id) {
+          socket.emit('join_hospital', { hospital_id: user.entity_id });
+        } else if (user.role === 'ambulance' && user.entity_id) {
+          socket.emit('join_ambulance', { ambulance_id: user.entity_id });
+        }
+
+        return user;
+      } catch {
+        return null;
+      }
     },
-    handleConfirm: (requestId, assignmentId) => {
-      confirmAssignment(requestId, assignmentId);
+
+    // ── Data Fetching ────────────────────────────────────────────────────────
+    fetchEmergencies: async () => {
+      try {
+        const res = await api.get<{ data: BackendEmergency[] }>('/api/v1/emergency/');
+        set({ emergencies: res.data });
+      } catch (err) {
+        console.error('fetchEmergencies failed', err);
+      }
     },
-    handleReject: (requestId, assignmentId, hospitalId) => {
-      rejectAssignment(requestId, assignmentId, hospitalId);
+
+    fetchHospitals: async () => {
+      try {
+        const res = await api.get<{ data: BackendHospital[] }>('/api/v1/hospital/');
+        set({ hospitals: res.data });
+      } catch (err) {
+        console.error('fetchHospitals failed', err);
+      }
     },
-    handleAdminOverride: (requestId, hospitalId) => {
-      adminOverride(requestId, hospitalId);
+
+    fetchAmbulances: async () => {
+      try {
+        const res = await api.get<{ data: BackendAmbulance[] }>('/api/v1/admin/ambulances');
+        set({ ambulances: res.data });
+      } catch (err) {
+        console.error('fetchAmbulances failed', err);
+      }
     },
-    handleCancelEmergency: (requestId) => {
-      cancelEmergency(requestId);
+
+    fetchDashboardStats: async () => {
+      try {
+        const res = await api.get<{ data: SystemStats }>('/api/v1/dashboard/stats');
+        set({ stats: res.data });
+      } catch (err) {
+        console.error('fetchDashboardStats failed', err);
+      }
+    },
+
+    fetchHospitalEmergencies: async (hospitalId: number) => {
+      const res = await api.get<{ data: { active: BackendEmergency[]; resolved: BackendEmergency[] } }>(
+        `/api/v1/hospital/${hospitalId}/emergencies`
+      );
+      return res.data;
+    },
+
+    fetchAdminUsers: async () => {
+      try {
+        const res = await api.get<{ data: AdminUser[] }>('/api/v1/admin/users');
+        set({ adminUsers: res.data });
+      } catch (err) {
+        console.error('fetchAdminUsers failed', err);
+      }
+    },
+
+    fetchMyHospital: async () => {
+      try {
+        const res = await api.get<{ data: BackendHospital }>('/api/v1/hospital/me');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+
+    // ── Ambulance Actions ────────────────────────────────────────────────────
+    submitEmergency: async (payload) => {
+      const res = await api.post<{ data: BackendEmergency }>('/api/v1/emergency/', payload);
+      const newEmergency = res.data;
+      set(s => ({ emergencies: [newEmergency, ...s.emergencies] }));
+      return newEmergency;
+    },
+
+    updateEmergencyStatus: async (emergencyId, status) => {
+      await api.post(`/api/v1/emergency/${emergencyId}/status`, { status });
+      set(s => ({
+        emergencies: s.emergencies.map(e =>
+          e.emergency_id === emergencyId ? { ...e, status } : e
+        )
+      }));
+    },
+
+    // ── Hospital Actions ─────────────────────────────────────────────────────
+    acknowledgeEmergency: async (emergencyId) => {
+      await api.post(`/api/v1/emergency/${emergencyId}/acknowledge`, {});
+      set(s => ({
+        emergencies: s.emergencies.map(e =>
+          e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e
+        )
+      }));
+    },
+
+    updateBeds: async (hospitalId, beds) => {
+      await api.put(`/api/v1/hospital/${hospitalId}/beds`, { available_beds: beds });
+      set(s => ({
+        hospitals: s.hospitals.map(h =>
+          h.hospital_id === hospitalId
+            ? { ...h, available_beds: beds, status: beds > 0 ? 'GREEN' : 'RED' }
+            : h
+        )
+      }));
+    },
+
+    // ── Admin Actions ────────────────────────────────────────────────────────
+    createUser: async (payload) => {
+      await api.post('/api/v1/admin/users', payload);
+      get().fetchAdminUsers();
+    },
+
+    deactivateUser: async (userId) => {
+      await api.put(`/api/v1/admin/users/${userId}/deactivate`, {});
+      get().fetchAdminUsers();
+    },
+
+    // —— Auth Actions —————————————————————————————————————
+    logout: () => {
+      localStorage.removeItem('aes_auth_token');
+      set({ currentUser: null });
     },
   };
 });

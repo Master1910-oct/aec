@@ -1,11 +1,14 @@
 class EmergencyStateMachine:
 
     allowed_transitions = {
-        "pending": ["allocated", "cancelled"],
-        "allocated": ["in_progress", "cancelled"],
-        "in_progress": ["completed"],
-        "completed": [],
-        "cancelled": []
+        "pending":     ["allocated", "cancelled"],
+        "allocated":   ["en_route", "cancelled"],
+        "en_route":    ["arrived"],
+        "arrived":     ["completed"],
+        "in_progress": ["completed"],        # legacy compatibility
+        "completed":   [],
+        "cancelled":   [],
+        "escalated":   ["completed", "cancelled"],  # allow admin resolution
     }
 
     @classmethod

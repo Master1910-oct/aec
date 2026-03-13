@@ -7,12 +7,14 @@ class EmergencyRequest(db.Model):
 
     emergency_id = db.Column(db.Integer, primary_key=True)
 
-    patient_name = db.Column(db.String(100), nullable=False)
+    # Patient / accident info
+    patient_name = db.Column(db.String(100), nullable=True)   # optional; derived from ambulance user
+    accident_description = db.Column(db.Text, nullable=True)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     emergency_type = db.Column(db.String(100), nullable=False)
 
-    # 🔥 Emergency Severity
+    # Severity
     severity = db.Column(
         db.Enum(
             "critical",
@@ -26,20 +28,25 @@ class EmergencyRequest(db.Model):
         index=True
     )
 
-    # 🔥 Emergency Status (UPDATED — added escalated)
+    # Status — full lifecycle
     status = db.Column(
         db.Enum(
             "pending",
             "allocated",
+            "en_route",
+            "arrived",
             "in_progress",
             "completed",
             "cancelled",
-            "escalated",  # ✅ NEW STATUS
+            "escalated",
             name="emergency_status"
         ),
         default="pending",
         index=True
     )
+
+    # Whether the receiving hospital has acknowledged the incoming emergency
+    acknowledged = db.Column(db.Boolean, default=False, nullable=False)
 
     hospital_id = db.Column(
         db.Integer,
@@ -59,7 +66,6 @@ class EmergencyRequest(db.Model):
         index=True
     )
 
-    # 🔥 SLA Deadline
     sla_deadline = db.Column(
         db.DateTime,
         nullable=True,
@@ -77,18 +83,46 @@ class EmergencyRequest(db.Model):
         back_populates="emergencies"
     )
 
-    # Helper for JSON responses
+    def is_overdue(self):
+        if self.sla_deadline and self.status not in ["completed", "cancelled", "escalated"]:
+            return datetime.utcnow() > self.sla_deadline
+        return False
+
     def to_dict(self):
+        hospital_info = None
+        if self.hospital:
+            hospital_info = {
+                "hospital_id": self.hospital.hospital_id,
+                "name": self.hospital.name,
+                "address": self.hospital.address,
+                "contact_number": self.hospital.contact_number,
+                "latitude": self.hospital.latitude,
+                "longitude": self.hospital.longitude,
+            }
+
+        ambulance_info = None
+        if self.ambulance:
+            ambulance_info = {
+                "ambulance_id": self.ambulance.ambulance_id,
+                "vehicle_number": self.ambulance.vehicle_number,
+                "driver_name": self.ambulance.driver_name,
+            }
+
         return {
             "emergency_id": self.emergency_id,
             "patient_name": self.patient_name,
+            "accident_description": self.accident_description,
             "latitude": self.latitude,
             "longitude": self.longitude,
             "emergency_type": self.emergency_type,
             "severity": self.severity,
             "status": self.status,
+            "acknowledged": self.acknowledged,
             "hospital_id": self.hospital_id,
             "ambulance_id": self.ambulance_id,
-            "created_at": self.created_at,
-            "sla_deadline": self.sla_deadline
+            "hospital": hospital_info,
+            "ambulance": ambulance_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "sla_deadline": self.sla_deadline.isoformat() if self.sla_deadline else None,
+            "is_overdue": self.is_overdue(),
         }
