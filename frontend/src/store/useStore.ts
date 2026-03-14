@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
-import { socket } from '@/lib/socket';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,6 +48,7 @@ export interface BackendHospital {
   latitude: number;
   longitude: number;
   contact_number: string;
+  max_capacity: number;
   specialities: string[];
   available_beds: number;
   is_active: boolean;
@@ -124,6 +124,7 @@ interface AppState {
   fetchHospitalEmergencies: (hospitalId: number) => Promise<{ active: BackendEmergency[]; resolved: BackendEmergency[] }>;
   fetchAdminUsers: () => Promise<void>;
   fetchMyHospital: () => Promise<BackendHospital | null>;
+  fetchMyAmbulance: () => Promise<BackendAmbulance | null>;
 
   // Actions — ambulance
   submitEmergency: (payload: {
@@ -134,6 +135,7 @@ interface AppState {
     longitude: number;
   }) => Promise<BackendEmergency>;
   updateEmergencyStatus: (emergencyId: number, status: string) => Promise<void>;
+  updateAmbulanceLocation: (latitude: number, longitude: number) => Promise<void>;
 
   // Actions — hospital
   acknowledgeEmergency: (emergencyId: number) => Promise<void>;
@@ -149,203 +151,162 @@ interface AppState {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-export const useStore = create<AppState>((set, get) => {
+export const useStore = create<AppState>((set, get) => ({
+  currentUser: null,
+  activeRole: 'admin',
+  emergencies: [],
+  hospitals: [],
+  ambulances: [],
+  stats: null,
+  adminUsers: [],
+  slaBreaches: [],
 
-  // 🔌 Socket listeners (set up once)
-  socket.on('emergency_allocated', (data: any) => {
-    console.log('WS: emergency_allocated', data);
-    get().fetchEmergencies(); // Refresh emergency list
-  });
+  // ── Identity ────────────────────────────────────────────────────────────
+  setCurrentUser: (u) => set({ currentUser: u }),
+  setActiveRole: (r) => set({ activeRole: r }),
 
-  socket.on('emergency_acknowledged', (data: any) => {
-    console.log('WS: emergency_acknowledged', data);
-    // Update local emergency acknowledged flag
+  fetchMe: async () => {
+    try {
+      const res = await api.get<{ data: CurrentUser }>('/api/v1/auth/me');
+      const user = res.data;
+      set({ currentUser: user, activeRole: user.role as any });
+      return user;
+    } catch {
+      return null;
+    }
+  },
+
+  // ── Data Fetching ────────────────────────────────────────────────────────
+  fetchEmergencies: async () => {
+    try {
+      const res = await api.get<{ data: BackendEmergency[] }>('/api/v1/emergency/');
+      set({ emergencies: res.data });
+    } catch (err) {
+      console.error('fetchEmergencies failed', err);
+    }
+  },
+
+  fetchHospitals: async () => {
+    try {
+      const res = await api.get<{ data: BackendHospital[] }>('/api/v1/hospital/');
+      set({ hospitals: res.data });
+    } catch (err) {
+      console.error('fetchHospitals failed', err);
+    }
+  },
+
+  fetchAmbulances: async () => {
+    try {
+      const res = await api.get<{ data: BackendAmbulance[] }>('/api/v1/ambulance/locations');
+      set({ ambulances: res.data });
+    } catch (err) {
+      console.error('fetchAmbulances failed', err);
+    }
+  },
+
+  fetchDashboardStats: async () => {
+    try {
+      const res = await api.get<{ data: SystemStats }>('/api/v1/admin/stats');
+      set({ stats: res.data });
+    } catch (err) {
+      console.error('fetchDashboardStats failed', err);
+    }
+  },
+
+  fetchHospitalEmergencies: async (hospitalId: number) => {
+    const res = await api.get<{ data: { active: BackendEmergency[]; resolved: BackendEmergency[] } }>(
+      `/api/v1/hospital/${hospitalId}/emergencies`
+    );
+    return res.data;
+  },
+
+  fetchAdminUsers: async () => {
+    try {
+      const res = await api.get<{ data: AdminUser[] }>('/api/v1/admin/users');
+      set({ adminUsers: res.data });
+    } catch (err) {
+      console.error('fetchAdminUsers failed', err);
+    }
+  },
+
+  fetchMyHospital: async () => {
+    try {
+      const res = await api.get<{ data: BackendHospital }>('/api/v1/hospital/me');
+      return res.data;
+    } catch {
+      return null;
+    }
+  },
+
+  fetchMyAmbulance: async () => {
+    try {
+      const res = await api.get<{ data: BackendAmbulance }>('/api/v1/ambulance/me');
+      return res.data;
+    } catch {
+      return null;
+    }
+  },
+
+  // ── Ambulance Actions ────────────────────────────────────────────────────
+  submitEmergency: async (payload) => {
+    const res = await api.post<{ data: BackendEmergency }>('/api/v1/emergency/', payload);
+    const newEmergency = res.data;
+    set(s => ({ emergencies: [newEmergency, ...s.emergencies] }));
+    return newEmergency;
+  },
+
+  updateEmergencyStatus: async (emergencyId, status) => {
+    await api.post(`/api/v1/emergency/${emergencyId}/status`, { status });
     set(s => ({
       emergencies: s.emergencies.map(e =>
-        e.emergency_id === data.emergency_id ? { ...e, acknowledged: true } : e
+        e.emergency_id === emergencyId ? { ...e, status } : e
       )
     }));
-  });
+  },
 
-  socket.on('emergency_status_updated', (data: any) => {
-    console.log('WS: emergency_status_updated', data);
+  updateAmbulanceLocation: async (lat, lon) => {
+    try {
+      await api.post('/api/v1/ambulance/location', { latitude: lat, longitude: lon });
+    } catch (err) {
+      console.error('updateAmbulanceLocation failed', err);
+    }
+  },
+
+  // ── Hospital Actions ─────────────────────────────────────────────────────
+  acknowledgeEmergency: async (emergencyId) => {
+    await api.post(`/api/v1/emergency/${emergencyId}/acknowledge`, {});
     set(s => ({
       emergencies: s.emergencies.map(e =>
-        e.emergency_id === data.emergency_id ? { ...e, status: data.new_status } : e
+        e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e
       )
     }));
-  });
+  },
 
-  socket.on('sla_breach', (data: any) => {
-    console.log('WS: sla_breach', data);
-    set(s => ({
-      slaBreaches: [
-        { ...data, received_at: new Date().toISOString() },
-        ...s.slaBreaches,
-      ]
-    }));
-  });
-
-  socket.on('availability_updated', (data: any) => {
+  updateBeds: async (hospitalId, beds) => {
+    await api.put(`/api/v1/hospital/${hospitalId}/beds`, { available_beds: beds });
     set(s => ({
       hospitals: s.hospitals.map(h =>
-        h.hospital_id === data.hospital_id
-          ? { ...h, available_beds: data.available_beds, status: data.status }
+        h.hospital_id === hospitalId
+          ? { ...h, available_beds: beds, status: beds > 0 ? 'GREEN' : 'RED' }
           : h
       )
     }));
-  });
+  },
 
-  return {
-    currentUser: null,
-    activeRole: 'admin',
-    emergencies: [],
-    hospitals: [],
-    ambulances: [],
-    stats: null,
-    adminUsers: [],
-    slaBreaches: [],
+  // ── Admin Actions ────────────────────────────────────────────────────────
+  createUser: async (payload) => {
+    await api.post('/api/v1/admin/users', payload);
+    get().fetchAdminUsers();
+  },
 
-    // ── Identity ────────────────────────────────────────────────────────────
-    setCurrentUser: (u) => set({ currentUser: u }),
-    setActiveRole: (r) => set({ activeRole: r }),
+  deactivateUser: async (userId) => {
+    await api.put(`/api/v1/admin/users/${userId}/deactivate`, {});
+    get().fetchAdminUsers();
+  },
 
-    fetchMe: async () => {
-      try {
-        const res = await api.get<{ data: CurrentUser }>('/api/v1/auth/me');
-        const user = res.data;
-        set({ currentUser: user, activeRole: user.role as any });
-
-        // Join the appropriate WebSocket room
-        if (user.role === 'admin') {
-          socket.emit('join_admin');
-        } else if (user.role === 'hospital' && user.entity_id) {
-          socket.emit('join_hospital', { hospital_id: user.entity_id });
-        } else if (user.role === 'ambulance' && user.entity_id) {
-          socket.emit('join_ambulance', { ambulance_id: user.entity_id });
-        }
-
-        return user;
-      } catch {
-        return null;
-      }
-    },
-
-    // ── Data Fetching ────────────────────────────────────────────────────────
-    fetchEmergencies: async () => {
-      try {
-        const res = await api.get<{ data: BackendEmergency[] }>('/api/v1/emergency/');
-        set({ emergencies: res.data });
-      } catch (err) {
-        console.error('fetchEmergencies failed', err);
-      }
-    },
-
-    fetchHospitals: async () => {
-      try {
-        const res = await api.get<{ data: BackendHospital[] }>('/api/v1/hospital/');
-        set({ hospitals: res.data });
-      } catch (err) {
-        console.error('fetchHospitals failed', err);
-      }
-    },
-
-    fetchAmbulances: async () => {
-      try {
-        const res = await api.get<{ data: BackendAmbulance[] }>('/api/v1/admin/ambulances');
-        set({ ambulances: res.data });
-      } catch (err) {
-        console.error('fetchAmbulances failed', err);
-      }
-    },
-
-    fetchDashboardStats: async () => {
-      try {
-        const res = await api.get<{ data: SystemStats }>('/api/v1/dashboard/stats');
-        set({ stats: res.data });
-      } catch (err) {
-        console.error('fetchDashboardStats failed', err);
-      }
-    },
-
-    fetchHospitalEmergencies: async (hospitalId: number) => {
-      const res = await api.get<{ data: { active: BackendEmergency[]; resolved: BackendEmergency[] } }>(
-        `/api/v1/hospital/${hospitalId}/emergencies`
-      );
-      return res.data;
-    },
-
-    fetchAdminUsers: async () => {
-      try {
-        const res = await api.get<{ data: AdminUser[] }>('/api/v1/admin/users');
-        set({ adminUsers: res.data });
-      } catch (err) {
-        console.error('fetchAdminUsers failed', err);
-      }
-    },
-
-    fetchMyHospital: async () => {
-      try {
-        const res = await api.get<{ data: BackendHospital }>('/api/v1/hospital/me');
-        return res.data;
-      } catch {
-        return null;
-      }
-    },
-
-    // ── Ambulance Actions ────────────────────────────────────────────────────
-    submitEmergency: async (payload) => {
-      const res = await api.post<{ data: BackendEmergency }>('/api/v1/emergency/', payload);
-      const newEmergency = res.data;
-      set(s => ({ emergencies: [newEmergency, ...s.emergencies] }));
-      return newEmergency;
-    },
-
-    updateEmergencyStatus: async (emergencyId, status) => {
-      await api.post(`/api/v1/emergency/${emergencyId}/status`, { status });
-      set(s => ({
-        emergencies: s.emergencies.map(e =>
-          e.emergency_id === emergencyId ? { ...e, status } : e
-        )
-      }));
-    },
-
-    // ── Hospital Actions ─────────────────────────────────────────────────────
-    acknowledgeEmergency: async (emergencyId) => {
-      await api.post(`/api/v1/emergency/${emergencyId}/acknowledge`, {});
-      set(s => ({
-        emergencies: s.emergencies.map(e =>
-          e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e
-        )
-      }));
-    },
-
-    updateBeds: async (hospitalId, beds) => {
-      await api.put(`/api/v1/hospital/${hospitalId}/beds`, { available_beds: beds });
-      set(s => ({
-        hospitals: s.hospitals.map(h =>
-          h.hospital_id === hospitalId
-            ? { ...h, available_beds: beds, status: beds > 0 ? 'GREEN' : 'RED' }
-            : h
-        )
-      }));
-    },
-
-    // ── Admin Actions ────────────────────────────────────────────────────────
-    createUser: async (payload) => {
-      await api.post('/api/v1/admin/users', payload);
-      get().fetchAdminUsers();
-    },
-
-    deactivateUser: async (userId) => {
-      await api.put(`/api/v1/admin/users/${userId}/deactivate`, {});
-      get().fetchAdminUsers();
-    },
-
-    // —— Auth Actions —————————————————————————————————————
-    logout: () => {
-      localStorage.removeItem('aes_auth_token');
-      set({ currentUser: null });
-    },
-  };
-});
+  // —— Auth Actions —————————————————————————————————————
+  logout: () => {
+    localStorage.removeItem('aes_auth_token');
+    set({ currentUser: null });
+  },
+}));

@@ -80,12 +80,22 @@ def login():
 @token_required
 def me():
     user_payload = g.current_user  # set by token_required decorator
+    user_id = user_payload.get("user_id")
+    
+    # Refresh identity data from DB
+    user = User.query.get(user_id)
+    entity_id = None
+    if user:
+        if user.role == "hospital" and user.hospital:
+            entity_id = user.hospital.hospital_id
+        elif user.role == "ambulance" and user.ambulance:
+            entity_id = user.ambulance.ambulance_id
 
     return success_response(
         "User identity retrieved",
         data={
-            "user_id": user_payload["user_id"],
-            "role": user_payload["role"],
-            "entity_id": user_payload.get("entity_id"),
+            "user_id": user_id,
+            "role": user.role if user else user_payload.get("role"),
+            "entity_id": entity_id,
         }
     )

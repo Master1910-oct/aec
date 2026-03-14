@@ -8,3 +8,4 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True
     }
+    JWT_SECRET_KEY = "aes-emergency-system-secret-key-2026"

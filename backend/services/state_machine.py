@@ -1,4 +1,10 @@
 class EmergencyStateMachine:
+    def __init__(self, emergency):
+        self.emergency = emergency
+
+    def initialize(self):
+        """Sets the initial state of the emergency."""
+        self.emergency.status = "pending"
 
     allowed_transitions = {
         "pending":     ["allocated", "cancelled"],

@@ -4,6 +4,7 @@ import { Building2, Bed, CheckCircle2, Minus, Plus, Clock, AlertTriangle, Loader
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import LiveMap from '@/components/map/LiveMap';
+import { haversineKm } from '@/utils/haversine';
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
@@ -38,7 +39,7 @@ function CapacityBar({ value, max, color }: { value: number; max: number; color:
 }
 
 export default function HospitalDashboard() {
-  const { currentUser, fetchHospitalEmergencies, acknowledgeEmergency, updateBeds, fetchMyHospital } = useStore();
+  const { currentUser, ambulances, fetchHospitalEmergencies, acknowledgeEmergency, updateBeds, fetchMyHospital } = useStore();
   const [activeEmergencies, setActiveEmergencies] = useState<BackendEmergency[]>([]);
   const [resolvedEmergencies, setResolvedEmergencies] = useState<BackendEmergency[]>([]);
   const [hospital, setHospital] = useState<BackendHospital | null>(null);
@@ -61,22 +62,33 @@ export default function HospitalDashboard() {
   const erBeds = Math.round(totalBeds * 0.1);
 
   const loadData = async () => {
-    if (currentUser?.role !== 'hospital' && hospitals.length === 0) {
+    // Admins need to see all hospitals to pick from
+    if (currentUser?.role === 'admin' && hospitals.length === 0) {
       await fetchHospitals();
     }
-    if (!effectiveHospitalId) { setLoading(false); return; }
+    
+    // Determine which hospital ID to fetch data for
+    const hospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
+    
+    if (!hospitalId) {
+      setLoading(false);
+      return;
+    }
     
     setLoading(true);
     try {
-      // If we are hospital, fetchMyHospital uses entity_id. Otherwise we just find it from the list.
+      // If we are a hospital user, fetch our own data specificially
       const hospData = currentUser?.role === 'hospital' 
         ? await fetchMyHospital()
-        : hospitals.find(h => h.hospital_id === effectiveHospitalId) ?? null;
+        : hospitals.find(h => h.hospital_id === hospitalId) ?? null;
         
-      const emergData = await fetchHospitalEmergencies(effectiveHospitalId);
+      const emergData = await fetchHospitalEmergencies(hospitalId);
+      
       setHospital(hospData);
       setActiveEmergencies(emergData.active ?? []);
       setResolvedEmergencies(emergData.resolved ?? []);
+    } catch (err) {
+      console.error('Failed to load hospital data', err);
     } finally {
       setLoading(false);
     }
@@ -99,6 +111,10 @@ export default function HospitalDashboard() {
 
   const handleBedChange = async (delta: number) => {
     if (isReadOnly || !hospital || !effectiveHospitalId) return;
+    if (delta > 0 && hospital.max_capacity && hospital.available_beds >= hospital.max_capacity) {
+      alert(`Cannot exceed maximum capacity of ${hospital.max_capacity} beds.`);
+      return;
+    }
     const newBeds = Math.max(0, hospital.available_beds + delta);
     setBedsUpdating(true);
     try {
@@ -114,8 +130,8 @@ export default function HospitalDashboard() {
 
   const isAvailable = hospital?.status === 'GREEN';
 
-  // If no hospital is selected and we are not a hospital user
-  if (!effectiveHospitalId && currentUser?.role !== 'hospital') {
+  // If no hospital is selected and we are an admin
+  if (!effectiveHospitalId && currentUser?.role === 'admin') {
     return (
       <div className="space-y-4 animate-slide-in-up">
         <div className="flex items-center justify-between p-4 bg-card border border-border rounded-lg">
@@ -128,7 +144,9 @@ export default function HospitalDashboard() {
             onChange={(e) => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
           >
-            <option value="" disabled>Select a hospital...</option>
+            <option value="" disabled>
+              {hospitals.length > 0 ? 'Select a hospital...' : 'No hospitals found — check backend connection'}
+            </option>
             {hospitals.map(h => <option key={h.hospital_id} value={h.hospital_id}>{h.name}</option>)}
           </select>
         </div>
@@ -271,8 +289,22 @@ export default function HospitalDashboard() {
                     </div>
                     <p className="text-sm font-medium capitalize">{e.emergency_type} Emergency</p>
                     {e.accident_description && <p className="text-xs text-muted-foreground">{e.accident_description}</p>}
-                    <div className="flex gap-4 text-xs font-mono text-muted-foreground">
-                      {e.ambulance && <span>🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})</span>}
+                    <div className="flex gap-4 text-xs font-mono text-muted-foreground flex-wrap">
+                      {e.ambulance && (
+                        <span className="flex items-center gap-1">
+                          🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
+                          {hospital?.latitude && hospital?.longitude && e.ambulance_id && ambulances.find(a => a.ambulance_id === e.ambulance_id) && (
+                            <span className="text-cyan-400 ml-1">
+                              · {haversineKm(
+                                hospital.latitude,
+                                hospital.longitude,
+                                ambulances.find(a => a.ambulance_id === e.ambulance_id)!.latitude,
+                                ambulances.find(a => a.ambulance_id === e.ambulance_id)!.longitude
+                              ).toFixed(1)} km
+                            </span>
+                          )}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {e.created_at ? new Date(e.created_at).toLocaleTimeString() : '—'}</span>
                       {e.is_overdue && <span className="flex items-center gap-1 text-red-400"><AlertTriangle className="h-3 w-3" /> SLA Breached</span>}
                     </div>
@@ -316,7 +348,7 @@ export default function HospitalDashboard() {
         <div className="rounded-lg border border-border bg-card p-4">
           <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Specialties</span>
           <div className="flex flex-wrap gap-2">
-            {hospital.specialities.length > 0
+            {Array.isArray(hospital.specialities) && hospital.specialities.length > 0
               ? hospital.specialities.map(s => (
                 <span key={s} className="px-3 py-1 rounded-md bg-secondary text-xs font-mono text-secondary-foreground capitalize">{s}</span>
               ))
@@ -335,13 +367,24 @@ export default function HospitalDashboard() {
           </div>
           <LiveMap
             hospitals={[hospital]}
-            ambulances={activeEmergencies.filter(e => e.ambulance).map(e => ({
-              ambulance_id: e.ambulance!.ambulance_id,
-              vehicle_number: e.ambulance!.vehicle_number,
-              driver_name: e.ambulance!.driver_name,
-              latitude: e.latitude, // Using emergency lat/lon as ambulance location for simplicity if real-time ambulance coords aren't joined
+            emergencies={activeEmergencies.map(e => ({
+              emergency_id: e.emergency_id,
+              emergency_type: e.emergency_type,
+              severity: e.severity,
+              latitude: e.latitude,
               longitude: e.longitude,
-              status: e.status === 'arrived' ? 'AVAILABLE' : 'ON_CALL'
+              status: e.status,
+              ambulance_id: e.ambulance_id,
+            }))}
+            ambulances={ambulances.filter(a => 
+              activeEmergencies.some(e => e.ambulance_id === a.ambulance_id)
+            ).map(a => ({
+              ambulance_id: a.ambulance_id,
+              vehicle_number: a.vehicle_number,
+              driver_name: a.driver_name,
+              latitude: a.latitude,
+              longitude: a.longitude,
+              status: a.status,
             }))}
             className="w-full h-[350px]"
           />

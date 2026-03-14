@@ -23,10 +23,11 @@ def check_sla_breaches():
             "sla_breach",
             {
                 "emergency_id": emergency.emergency_id,
+                "patient_name": emergency.patient_name,
                 "severity": emergency.severity,
-                "emergency_type": emergency.emergency_type,
-                "sla_deadline": emergency.sla_deadline.isoformat() if emergency.sla_deadline else None,
-                "message": "SLA Breach — Emergency escalated",
+                "deadline": emergency.sla_deadline.isoformat() if emergency.sla_deadline else None,
+                "breached_at": now.isoformat(),
+                "message": f"SLA Breached: Emergency #{emergency.emergency_id} ({emergency.severity}) has exceeded its deadline.",
             },
             room="admin"
         )

@@ -13,6 +13,8 @@ from routes.admin_routes import admin_bp
 from routes.emergency_routes import emergency_bp
 from routes.dashboard_routes import dashboard_bp
 from routes.auth_routes import auth_bp
+from routes.ambulance_routes import ambulance_bp
+
 
 # Models (required for migrations)
 from models import Hospital, Ambulance, Availability, EmergencyRequest, User
@@ -50,6 +52,8 @@ def create_app():
     app.register_blueprint(admin_bp)            # admin_bp already has /api/v1/admin prefix
     app.register_blueprint(emergency_bp)        # emergency_bp already has /api/v1/emergency prefix
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
+    app.register_blueprint(ambulance_bp)
+
 
     # Temporary setup route — remove after first use
     from routes.setup_routes import setup_bp

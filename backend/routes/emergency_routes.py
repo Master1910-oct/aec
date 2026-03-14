@@ -57,9 +57,11 @@ def create_emergency():
             longitude=data["longitude"],
             emergency_type=emergency_type,
             severity=severity,
-            status="pending",
             acknowledged=False,
         )
+        
+        # Initialize status via state machine (Bug 3)
+        EmergencyStateMachine(emergency).initialize()
 
         # SLA Deadlines
         sla_map = {"critical": 5, "high": 10, "medium": 20, "low": 30}
@@ -173,16 +175,36 @@ def update_emergency_status(emergency_id):
         emergency.status = new_status
         db.session.commit()
 
-        # 🔥 WebSocket: notify admin (and ambulance room if status changes)
+        # 🔥 WebSocket: notify admin, hospital, and ambulance room
         event_payload = {
             "emergency_id": emergency_id,
             "previous_status": previous_status,
             "new_status": new_status,
+            "ambulance_id": emergency.ambulance_id,
+            "updated_by": "ambulance"
         }
+        
         socketio.emit("emergency_status_updated", event_payload, room="admin")
+        
+        if emergency.hospital_id:
+            socketio.emit("emergency_status_updated", event_payload, room=f"hospital_{emergency.hospital_id}")
+            
         if emergency.ambulance_id:
-            socketio.emit("emergency_status_updated", event_payload,
-                          room=f"ambulance_{emergency.ambulance_id}")
+            socketio.emit("emergency_status_updated", event_payload, room=f"ambulance_{emergency.ambulance_id}")
+
+        # Bug 2: Notify about bed count change if completed
+        if new_status == "completed" and emergency.hospital:
+            hospital = emergency.hospital
+            availability = hospital.availability
+            if availability:
+                bed_payload = {
+                    "hospital_id": hospital.hospital_id,
+                    "hospital_name": hospital.name,
+                    "available_beds": availability.available_beds,
+                    "status": "GREEN" if availability.available_beds > 0 else "RED"
+                }
+                socketio.emit("availability_updated", bed_payload, room="admin")
+                socketio.emit("availability_updated", bed_payload, room=f"hospital_{hospital.hospital_id}")
 
         return success_response(
             message="Emergency status updated successfully",

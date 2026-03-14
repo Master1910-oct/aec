@@ -15,7 +15,10 @@ class Hospital(db.Model):
     capabilities = db.Column(db.String(255))
 
     # Comma-separated list: trauma,cardiac,respiratory,neurological,other
+    # Database format: Option B (comma-separated string). Use split(",") in Python.
     specialities = db.Column(db.Text, nullable=True, default="")
+    max_capacity = db.Column(db.Integer, nullable=False, default=100)
+
 
     contact_number = db.Column(db.String(20), nullable=False)
 
@@ -56,6 +59,7 @@ class Hospital(db.Model):
             "address": self.address,
             "latitude": self.latitude,
             "longitude": self.longitude,
+            "max_capacity": self.max_capacity,
             "contact_number": self.contact_number,
             "specialities": self.get_specialities_list(),
             "available_beds": available_beds,

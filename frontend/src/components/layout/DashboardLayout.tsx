@@ -2,8 +2,10 @@ import { Outlet } from 'react-router-dom';
 import { DashboardSidebar } from './DashboardSidebar';
 import { Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useSocketEvents } from '@/hooks/useSocketEvents';
 
 export function DashboardLayout() {
+  useSocketEvents();
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {

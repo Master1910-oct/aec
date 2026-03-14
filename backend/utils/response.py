@@ -14,7 +14,5 @@ def error_response(message="Something went wrong", status=400):
     Standard error response format
     """
     return {
-        "success": False,
-        "message": message,
-        "data": None
+        "error": message
     }, status

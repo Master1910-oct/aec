@@ -16,9 +16,11 @@ hospital_bp = Blueprint("hospital", __name__)
 @roles_required("admin", "dispatcher", "ambulance")
 def get_hospitals():
     hospitals = Hospital.query.filter_by(is_active=True).all()
+    results = [h.to_dict() for h in hospitals]
+
     return success_response(
         message="Hospitals fetched successfully",
-        data=[h.to_dict() for h in hospitals]
+        data=results
     )
 
 

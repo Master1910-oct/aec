@@ -22,6 +22,10 @@ class Ambulance(db.Model):
         default="AVAILABLE"
     )
 
+    last_latitude = db.Column(db.Float, nullable=True)
+    last_longitude = db.Column(db.Float, nullable=True)
+    last_location_updated_at = db.Column(db.DateTime, nullable=True)
+
     last_updated = db.Column(
         db.DateTime,
         default=datetime.utcnow,
@@ -47,5 +51,8 @@ class Ambulance(db.Model):
             "latitude": self.latitude,
             "longitude": self.longitude,
             "status": self.status,
+            "last_latitude": self.last_latitude,
+            "last_longitude": self.last_longitude,
+            "last_location_updated_at": self.last_location_updated_at.isoformat() if self.last_location_updated_at else None,
             "last_updated": self.last_updated.isoformat() if self.last_updated else None,
         }

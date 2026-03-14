@@ -132,14 +132,14 @@ export default function AdminDashboard() {
         {[
           {
             label: 'Active Units', icon: Ambulance,
-            value: stats?.on_call_ambulances ?? 0,
-            sub: `of ${stats?.total_ambulances ?? 0} total`,
+            value: ambulances.filter(a => a.status === 'ON_CALL').length,
+            sub: `of ${ambulances.length} total`,
             color: 'text-cyan-400',
           },
           {
             label: 'Available Hospitals', icon: Building2,
-            value: stats?.available_hospitals ?? 0,
-            sub: `of ${stats?.total_hospitals ?? 0} total`,
+            value: hospitals.filter(h => (h.available_beds ?? 0) > 0).length,
+            sub: `of ${hospitals.length} total`,
             color: 'text-blue-400',
           },
           {
@@ -194,25 +194,41 @@ export default function AdminDashboard() {
                   Live
                 </span>
               </div>
-              <LiveMap
-                ambulances={ambulances.map(a => ({
-                  ambulance_id: a.ambulance_id,
-                  vehicle_number: a.vehicle_number,
-                  driver_name: a.driver_name,
-                  latitude: a.latitude,
-                  longitude: a.longitude,
-                  status: a.status,
-                }))}
-                hospitals={hospitals.map(h => ({
-                  hospital_id: h.hospital_id,
-                  name: h.name,
-                  available_beds: h.available_beds,
-                  latitude: h.latitude,
-                  longitude: h.longitude,
-                  status: h.status,
-                }))}
-                className="w-full h-[380px]"
-              />
+              {ambulances.length === 0 && hospitals.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-[380px] bg-secondary/10 text-muted-foreground font-mono">
+                  <Loader2 className="h-6 w-6 animate-spin mb-2" />
+                  No location data available
+                </div>
+              ) : (
+                <LiveMap
+                  emergencies={(emergencies ?? []).map(e => ({
+                    emergency_id: e.emergency_id,
+                    emergency_type: e.emergency_type,
+                    severity: e.severity,
+                    latitude: e.latitude,
+                    longitude: e.longitude,
+                    status: e.status,
+                    ambulance_id: e.ambulance_id,
+                  }))}
+                  ambulances={(ambulances ?? []).map(a => ({
+                    ambulance_id: a.ambulance_id,
+                    vehicle_number: a.vehicle_number,
+                    driver_name: a.driver_name ?? null,
+                    latitude: a.latitude ?? null,
+                    longitude: a.longitude ?? null,
+                    status: a.status,
+                  }))}
+                  hospitals={(hospitals ?? []).map(h => ({
+                    hospital_id: h.hospital_id,
+                    name: h.name,
+                    available_beds: h.available_beds ?? 0,
+                    latitude: h.latitude ?? null,
+                    longitude: h.longitude ?? null,
+                    status: (h.available_beds ?? 0) > 0 ? 'GREEN' : 'RED',
+                  }))}
+                  className="w-full h-[380px]"
+                />
+              )}
             </div>
 
             {/* Active Assignments Panel */}
@@ -263,10 +279,14 @@ export default function AdminDashboard() {
                   {ambulances.map(a => (
                     <tr key={a.ambulance_id} className="hover:bg-secondary/20 transition-colors">
                       <td className="px-4 py-2.5 font-mono font-bold text-cyan-400">{a.vehicle_number}</td>
-                      <td className="px-4 py-2.5 font-mono text-muted-foreground">ALS</td>
+                      <td className="px-4 py-2.5 font-mono text-muted-foreground">Emergency</td>
                       <td className="px-4 py-2.5"><AmbulanceStatusChip status={a.status} /></td>
-                      <td className="px-4 py-2.5">{a.driver_name ?? '—'}</td>
-                      <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">{a.latitude.toFixed(4)}, {a.longitude.toFixed(4)}</td>
+                      <td className="px-4 py-2.5">{a.driver_name ?? 'Unknown'}</td>
+                      <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">
+                        {a.latitude && a.longitude 
+                          ? `${a.latitude.toFixed(4)}, ${a.longitude.toFixed(4)}` 
+                          : 'No GPS'}
+                      </td>
                     </tr>
                   ))}
                   {ambulances.length === 0 && (

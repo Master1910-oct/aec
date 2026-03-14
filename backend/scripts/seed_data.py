@@ -27,6 +27,7 @@ with app.app_context():
             longitude=80.2707,
             contact_number="9876543210",
             specialities="trauma,cardiac,neurological",
+            max_capacity=50,
         )
         db.session.add(h1)
         db.session.flush()
@@ -41,6 +42,7 @@ with app.app_context():
             longitude=77.5946,
             contact_number="9123456780",
             specialities="respiratory,cardiac,other",
+            max_capacity=40,
         )
         db.session.add(h2)
         db.session.flush()

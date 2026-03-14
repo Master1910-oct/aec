@@ -31,7 +31,7 @@ function InfoCard({ label, children }: { label: string; children: React.ReactNod
 }
 
 export default function AmbulancePanel() {
-  const { currentUser, submitEmergency, updateEmergencyStatus, emergencies, fetchEmergencies } = useStore();
+  const { currentUser, submitEmergency, updateEmergencyStatus, updateAmbulanceLocation, emergencies, fetchEmergencies } = useStore();
 
   const [description, setDescription] = useState('');
   const [emergencyType, setEmergencyType] = useState<string>('trauma');
@@ -43,17 +43,16 @@ export default function AmbulancePanel() {
   const [formError, setFormError] = useState('');
   const [submitted, setSubmitted] = useState<BackendEmergency | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [myAmbulance, setMyAmbulance] = useState<any>(null);
 
   // For Admin and Hospital, allow selecting an ambulance to view
-  const { ambulances, fetchAmbulances } = useStore();
+  const { ambulances, fetchAmbulances, fetchMyAmbulance } = useStore();
   const [selectedAmbulanceId, setSelectedAmbulanceId] = useState<number | null>(null);
 
   const effectiveAmbulanceId = currentUser?.role === 'ambulance' ? currentUser.entity_id : selectedAmbulanceId;
   const isReadOnly = currentUser?.role === 'hospital' || (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveAmbulanceId);
   
-  const currentAmbulance = currentUser?.role === 'ambulance' 
-    ? { ambulance_id: currentUser.entity_id, driver_name: currentUser.name, vehicle_number: `Unit #${currentUser.entity_id}` }
-    : ambulances.find(a => a.ambulance_id === effectiveAmbulanceId);
 
   const myActiveEmergency = submitted ?? emergencies.find(
     e => e.ambulance_id === effectiveAmbulanceId && !['completed', 'cancelled'].includes(e.status)
@@ -69,21 +68,63 @@ export default function AmbulancePanel() {
     );
   }, []);
 
-  useEffect(() => { 
-    if (currentUser?.role !== 'ambulance' && ambulances.length === 0) {
-      fetchAmbulances();
+  const fetchStoreData = useCallback(async () => {
+    if (currentUser?.role === 'admin' && ambulances.length === 0) {
+      await fetchAmbulances();
     }
+    if (currentUser?.role === 'ambulance') {
+      const amb = await fetchMyAmbulance();
+      setMyAmbulance(amb);
+    }
+  }, [currentUser?.role, ambulances.length, fetchAmbulances, fetchMyAmbulance]);
+
+  useEffect(() => { 
+    fetchStoreData();
     if (!isReadOnly) detectGPS(); 
     fetchEmergencies(); 
-  }, [fetchAmbulances, detectGPS, isReadOnly, fetchEmergencies, ambulances.length]);
+  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies]);
+
+  const currentAmbulance = currentUser?.role === 'ambulance' 
+    ? (myAmbulance || { ambulance_id: currentUser.entity_id, driver_name: currentUser.name, vehicle_number: `Unit #${currentUser.entity_id}` })
+    : ambulances.find(a => a.ambulance_id === effectiveAmbulanceId);
+
+  // Periodic GPS Broadcast
+  useEffect(() => {
+    if (isReadOnly || !effectiveAmbulanceId || !lat || !lon) return;
+    
+    // Statuses that trigger broadcasting
+    const activeStatuses = ['allocated', 'en_route', 'arrived'];
+    if (myActiveEmergency && activeStatuses.includes(myActiveEmergency.status)) {
+      setIsBroadcasting(true);
+      const interval = setInterval(() => {
+        updateAmbulanceLocation(parseFloat(lat), parseFloat(lon));
+      }, 12000); // 12 seconds
+      return () => {
+        clearInterval(interval);
+        setIsBroadcasting(false);
+      };
+    } else {
+      setIsBroadcasting(false);
+    }
+  }, [myActiveEmergency?.status, lat, lon, isReadOnly, effectiveAmbulanceId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    
+    // Validations
+    if (!description.trim()) { setFormError('Please provide a description'); return; }
     if (!lat || !lon) { setFormError('Location is required. Please use GPS or enter coordinates manually.'); return; }
+    
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lon);
+    
+    if (isNaN(latitude) || latitude < -90 || latitude > 90) { setFormError('Invalid latitude (-90 to 90)'); return; }
+    if (isNaN(longitude) || longitude < -180 || longitude > 180) { setFormError('Invalid longitude (-180 to 180)'); return; }
+
     setSubmitting(true);
     try {
-      const result = await submitEmergency({ accident_description: description, emergency_type: emergencyType, severity, latitude: parseFloat(lat), longitude: parseFloat(lon) });
+      const result = await submitEmergency({ accident_description: description, emergency_type: emergencyType, severity, latitude, longitude });
       setSubmitted(result);
     } catch (err: any) { setFormError(err.message || 'Failed to submit emergency'); }
     finally { setSubmitting(false); }
@@ -138,7 +179,7 @@ export default function AmbulancePanel() {
     <div className="space-y-4 animate-slide-in-up">
 
       {/* ── Ambulance Selector for Admins/Hospital ── */}
-      {currentUser?.role !== 'ambulance' && (
+      {currentUser?.role === 'admin' && (
         <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Viewing:</span>
           <select 
@@ -146,7 +187,9 @@ export default function AmbulancePanel() {
             onChange={(e) => setSelectedAmbulanceId(Number(e.target.value))}
             value={selectedAmbulanceId ?? ''}
           >
-            <option value="" disabled>Select an ambulance...</option>
+            <option value="" disabled>
+              {ambulances.length > 0 ? 'Select an ambulance...' : 'No ambulances found — check backend connection'}
+            </option>
             {ambulances.map(a => <option key={a.ambulance_id} value={a.ambulance_id}>{a.vehicle_number} ({a.driver_name ?? 'No Driver'})</option>)}
           </select>
           {isReadOnly && <span className="ml-auto text-[10px] font-mono text-orange-400 border border-orange-400/30 bg-orange-400/10 px-2 py-0.5 rounded tracking-wider uppercase">Read Only</span>}
@@ -161,15 +204,15 @@ export default function AmbulancePanel() {
       <>
         {/* ── Top Info Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <InfoCard label="Crew on Duty">
+        <InfoCard label="Ambulance Identity">
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm">
-              <User className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{currentAmbulance?.driver_name ?? `Unit Driver #${effectiveAmbulanceId}`}</span>
+            <div className="flex items-center gap-2 text-sm font-bold text-cyan-400">
+              <AmbulanceIcon className="h-4 w-4" />
+              <span>{myAmbulance?.vehicle_number ?? currentAmbulance?.vehicle_number ?? 'Identifying...'}</span>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <User className="h-3.5 w-3.5" />
-              <span>EMT Medic / {currentAmbulance?.vehicle_number ?? '—'}</span>
+              <span>{myAmbulance?.driver_name ?? currentAmbulance?.driver_name ?? (effectiveAmbulanceId ? `Unit #${effectiveAmbulanceId}` : '—')}</span>
             </div>
           </div>
         </InfoCard>
@@ -186,6 +229,11 @@ export default function AmbulancePanel() {
               <Radio className={cn('h-3 w-3', lat ? 'text-green-400' : 'text-muted-foreground')} />
               <span className={lat ? 'text-green-400' : 'text-muted-foreground'}>
                 {lat ? 'GPS Active' : (isReadOnly ? 'GPS Offline' : 'GPS Searching...')}
+                {isBroadcasting && (
+                  <span className="flex items-center gap-1 ml-2 text-[9px] text-primary animate-pulse border border-primary/30 px-1.5 py-0.5 rounded">
+                    BROADCASTING
+                  </span>
+                )}
               </span>
               {!lat && !isReadOnly && (
                 <button onClick={detectGPS} className="text-primary hover:text-primary/80 text-xs ml-1">

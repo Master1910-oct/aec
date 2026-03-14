@@ -32,14 +32,16 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 def allocate_hospital(emergency):
     """
     Allocates nearest active hospital that:
-    1. Has available beds
+    1. Has available beds (> 0)
     2. Supports the emergency type (speciality match)
     Falls back to any available hospital if no speciality match found.
     """
 
+    # Primary query for active hospitals with available beds
     hospitals = (
         Hospital.query
-        .filter_by(is_active=True)
+        .join(Availability)
+        .filter(Hospital.is_active == True, Availability.available_beds > 0)
         .with_for_update()
         .all()
     )
@@ -51,23 +53,15 @@ def allocate_hospital(emergency):
         min_distance = float("inf")
 
         for hospital in candidates:
-            availability = (
-                Availability.query
-                .filter_by(hospital_id=hospital.hospital_id)
-                .with_for_update()
-                .first()
+            distance = calculate_distance(
+                emergency.latitude,
+                emergency.longitude,
+                hospital.latitude,
+                hospital.longitude,
             )
-
-            if availability and availability.available_beds > 0:
-                distance = calculate_distance(
-                    emergency.latitude,
-                    emergency.longitude,
-                    hospital.latitude,
-                    hospital.longitude,
-                )
-                if distance < min_distance:
-                    min_distance = distance
-                    nearest = hospital
+            if distance < min_distance:
+                min_distance = distance
+                nearest = hospital
 
         return nearest
 
@@ -79,20 +73,16 @@ def allocate_hospital(emergency):
 
     nearest_hospital = _pick_nearest(speciality_matched)
 
-    # Fallback: any available hospital
+    # Fallback: any available hospital with beds (from our initial query)
     if not nearest_hospital:
         nearest_hospital = _pick_nearest(hospitals)
 
     if not nearest_hospital:
         return None
 
-    # Reduce available beds
-    availability = Availability.query.filter_by(
-        hospital_id=nearest_hospital.hospital_id
-    ).first()
-
-    if availability:
-        availability.available_beds -= 1
+    # Reduce available beds (already joined Availability in query)
+    if nearest_hospital.availability:
+        nearest_hospital.availability.available_beds -= 1
 
     # Attach hospital to emergency
     emergency.hospital_id = nearest_hospital.hospital_id
