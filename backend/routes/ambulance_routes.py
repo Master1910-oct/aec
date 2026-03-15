@@ -78,16 +78,19 @@ def update_location():
 # ==========================================
 @ambulance_bp.route("/locations", methods=["GET"])
 @token_required
-@roles_required("admin", "hospital")
+@roles_required("admin", "hospital", "ambulance")
 def get_ambulance_locations():
     user = g.current_user
     
     if user["role"] == "admin":
         # Admin sees all ambulances
         ambulances = Ambulance.query.all()
-    else:
+    elif user["role"] == "hospital":
         # Hospital only sees ambulance assigned to their active emergencies
         hospital_id = user.get("entity_id")
+        if not hospital_id:
+            return success_response(message="No linked hospital found", data=[])
+            
         active_emergencies = EmergencyRequest.query.filter(
             EmergencyRequest.hospital_id == hospital_id,
             EmergencyRequest.status.notin_(["completed", "cancelled", "escalated"])
@@ -98,6 +101,12 @@ def get_ambulance_locations():
             return success_response(message="No assigned ambulances", data=[])
             
         ambulances = Ambulance.query.filter(Ambulance.ambulance_id.in_(ambulance_ids)).all()
+    else:
+        # Ambulance role — return only their own
+        ambulance_id = user.get("entity_id")
+        if not ambulance_id:
+            return success_response(message="No linked ambulance found", data=[])
+        ambulances = Ambulance.query.filter_by(ambulance_id=ambulance_id).all()
 
     return success_response(
         message="Ambulance locations fetched",

@@ -148,54 +148,37 @@ def list_ambulances():
 @token_required
 @roles_required("admin")
 def get_stats():
-    from datetime import datetime
-    from models import EmergencyRequest
-    from models.ambulance import Ambulance
-    from models.hospital import Hospital
-    from models.availability import Availability
-    
-    now = datetime.utcnow()
+    from models import EmergencyRequest, Ambulance, Hospital, Availability
+    from database.db import db
+    from sqlalchemy import func
 
-    total = EmergencyRequest.query.count()
-    pending = EmergencyRequest.query.filter_by(status="pending").count()
-    allocated = EmergencyRequest.query.filter_by(status="allocated").count()
-    en_route = EmergencyRequest.query.filter_by(status="en_route").count()
-    completed = EmergencyRequest.query.filter_by(status="completed").count()
-    escalated = EmergencyRequest.query.filter_by(status="escalated").count()
+    # active_units: count of ambulances with status ON_CALL
+    active_units = Ambulance.query.filter_by(status="ON_CALL").count()
 
-    # SLA breaches: active emergencies past their deadline
-    active_statuses = ["pending", "allocated", "en_route", "arrived", "in_progress"]
-    sla_breached = EmergencyRequest.query.filter(
-        EmergencyRequest.status.in_(active_statuses),
-        EmergencyRequest.sla_deadline < now
-    ).count()
-
-    total_ambulances = Ambulance.query.count()
-    available_ambulances = Ambulance.query.filter_by(status="AVAILABLE").count()
-    on_call_ambulances = Ambulance.query.filter_by(status="ON_CALL").count()
-
-    total_hospitals = Hospital.query.filter_by(is_active=True).count()
+    # available_hospitals: count of active hospitals with > 0 beds
     available_hospitals = (
         Hospital.query
-        .join(Availability)
+        .join(Availability, Hospital.hospital_id == Availability.hospital_id)
         .filter(Hospital.is_active == True, Availability.available_beds > 0)
         .count()
     )
 
+    # critical_alerts: emergencies with severity critical and status not completed/cancelled
+    critical_alerts = EmergencyRequest.query.filter(
+        EmergencyRequest.severity == "critical",
+        EmergencyRequest.status.notin_(["completed", "cancelled"])
+    ).count()
+
+    # avg_response_time: Optional, we can set to None or calculate if we have a field
+    # We don't have response time tracking in models right now, so we return None
+    avg_response_time = None
+
     return success_response(
         message="Admin stats fetched successfully",
         data={
-            "total_emergencies": total,
-            "pending": pending,
-            "allocated": allocated,
-            "en_route": en_route,
-            "completed": completed,
-            "escalated": escalated,
-            "sla_breached": sla_breached,
-            "total_ambulances": total_ambulances,
-            "available_ambulances": available_ambulances,
-            "on_call_ambulances": on_call_ambulances,
-            "total_hospitals": total_hospitals,
+            "active_units": active_units,
             "available_hospitals": available_hospitals,
+            "avg_response_time": avg_response_time,
+            "critical_alerts": critical_alerts
         }
     )
