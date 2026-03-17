@@ -62,8 +62,8 @@ export default function HospitalDashboard() {
   const erBeds = Math.round(totalBeds * 0.1);
 
   const loadData = async () => {
-    // Admins need to see all hospitals to pick from
-    if (currentUser?.role === 'admin' && hospitals.length === 0) {
+    // Admins and Ambulances need to see all hospitals to pick from
+    if (currentUser?.role !== 'hospital' && hospitals.length === 0) {
       await fetchHospitals();
     }
     
@@ -130,8 +130,8 @@ export default function HospitalDashboard() {
 
   const isAvailable = hospital?.status === 'GREEN';
 
-  // If no hospital is selected and we are an admin
-  if (!effectiveHospitalId && currentUser?.role === 'admin') {
+  // If no hospital is selected and we are not a hospital user
+  if (!effectiveHospitalId && currentUser?.role !== 'hospital') {
     return (
       <div className="space-y-4 animate-slide-in-up">
         <div className="flex items-center justify-between p-4 bg-card border border-border rounded-lg">

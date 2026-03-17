@@ -47,7 +47,7 @@ def get_my_hospital():
 # ==========================================
 @hospital_bp.route("/<int:hospital_id>/emergencies", methods=["GET"])
 @token_required
-@roles_required("admin", "hospital")
+@roles_required("admin", "hospital", "ambulance")
 def get_hospital_emergencies(hospital_id):
     # Hospital users can only see their own
     user = g.current_user

@@ -69,7 +69,7 @@ export default function AmbulancePanel() {
   }, []);
 
   const fetchStoreData = useCallback(async () => {
-    if (currentUser?.role === 'admin' && ambulances.length === 0) {
+    if (currentUser?.role !== 'ambulance' && ambulances.length === 0) {
       await fetchAmbulances();
     }
     if (currentUser?.role === 'ambulance') {
@@ -179,7 +179,7 @@ export default function AmbulancePanel() {
     <div className="space-y-4 animate-slide-in-up">
 
       {/* ── Ambulance Selector for Admins/Hospital ── */}
-      {currentUser?.role === 'admin' && (
+      {currentUser?.role !== 'ambulance' && (
         <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Viewing:</span>
           <select 
