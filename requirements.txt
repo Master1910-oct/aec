@@ -1,0 +1,58 @@
+=========================================
+EMERGENCY AMBULANCE SYSTEM - REQUIREMENTS
+=========================================
+
+-------------------------
+1. SYSTEM SOFTWARE
+-------------------------
+- Python (3.x)
+- Node.js (v18.x or higher recommended)
+- npm (Node Package Manager)
+- MySQL Server (Running locally on port 3306)
+
+-------------------------
+2. DATABASE CONFIGURATION
+-------------------------
+A MySQL server needs to be running with the following credentials (defined in backend/config.py):
+- Host: localhost
+- Port: 3306
+- Username: root
+- Password: Aakash@191005
+- Database Name: emergency_ambulance_system
+(You must create this database before running the backend)
+
+-------------------------
+3. BACKEND (Python/Flask)
+-------------------------
+Navigate to: f:\aes1\aec\backend\
+Install dependencies via: pip install -r requirements.txt
+
+Python Packages Needed:
+- Flask
+- Flask-Cors
+- Flask-SQLAlchemy
+- Flask-Migrate
+- Flask-SocketIO
+- pymysql
+
+-------------------------
+4. FRONTEND (React/Vite/Node)
+-------------------------
+Navigate to: f:\aes1\aec\frontend\
+Install dependencies via: npm install
+
+Key NPM Packages Needed:
+- react @19.x & react-dom @19.x
+- vite (Development build tool)
+- tailwindcss (Styling)
+- socket.io-client (Real-time connection to Flask)
+- zustand (State Management)
+- react-router-dom (Routing)
+- Various UI libraries (@radix-ui, lucide-react, recharts)
+
+-------------------------
+HOW TO START
+-------------------------
+1. Ensure your MySQL server is running.
+2. Open terminal #1: cd to f:\aes1\aec\backend -> run "python app.py"
+3. Open terminal #2: cd to f:\aes1\aec\frontend -> run "npm run dev"
