@@ -1,3 +1,14 @@
-__pycache__/ 
-*.pyc 
-backend/.env 
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+backend/venv/
+
+# Environment variables
+.env
+backend/.env
+
+# Ignore specific backend file
+backend/token_generator.py
