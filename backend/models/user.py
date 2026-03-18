@@ -1,19 +1,13 @@
 from database.db import db
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
-
+from datetime import datetime, timezone
+import bcrypt
 
 class User(db.Model):
     __tablename__ = "users"
-
     user_id = db.Column(db.Integer, primary_key=True)
-
     name = db.Column(db.String(100), nullable=False)
-
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
-
     password_hash = db.Column(db.String(255), nullable=False)
-
     role = db.Column(
         db.Enum(
             "admin",
@@ -24,15 +18,20 @@ class User(db.Model):
         ),
         nullable=False
     )
-
     created_at = db.Column(
         db.DateTime,
-        default=datetime.utcnow
+        default=lambda: datetime.now(timezone.utc)  # Fixed deprecated utcnow
     )
 
     # 🔐 Password Methods
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+        salt = bcrypt.gensalt(rounds=12)  # 12 rounds = strong but not too slow
+        self.password_hash = bcrypt.hashpw(
+            password.encode("utf-8"), salt
+        ).decode("utf-8")
 
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        return bcrypt.checkpw(
+            password.encode("utf-8"),
+            self.password_hash.encode("utf-8")
+        )
