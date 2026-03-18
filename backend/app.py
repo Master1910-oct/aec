@@ -4,14 +4,16 @@ from flask_migrate import Migrate
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import threading
+import os
+
 from config import Config
 from database.db import db
 from extensions.socketio_ext import socketio
+from routes.auth_routes import auth_bp
 from routes.hospital_routes import hospital_bp
 from routes.admin_routes import admin_bp
 from routes.emergency_routes import emergency_bp
 from routes.dashboard_routes import dashboard_bp
-from routes.auth_routes import auth_bp
 from routes.ambulance_routes import ambulance_bp
 from models import Hospital, Ambulance, Availability, EmergencyRequest, User
 from utils.error_handlers import register_error_handlers
@@ -22,10 +24,17 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    CORS(app, resources={r"/*": {"origins": "*"}})
+    # ─────────────────────────────────────────
+    # CORS — restrict to your frontend origin
+    # ─────────────────────────────────────────
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
+    # ─────────────────────────────────────────
+    # Extensions
+    # ─────────────────────────────────────────
     db.init_app(app)
-    socketio.init_app(app, cors_allowed_origins="*")
+    socketio.init_app(app, cors_allowed_origins=allowed_origins)
     Migrate(app, db)
 
     # ─────────────────────────────────────────
@@ -38,7 +47,7 @@ def create_app():
         storage_uri="memory://"
     )
 
-    # Register error handler for rate limit (429)
+    # 429 error handler
     @app.errorhandler(429)
     def rate_limit_exceeded(e):
         return jsonify({
@@ -54,12 +63,21 @@ def create_app():
     limiter.exempt(ambulance_bp)
     limiter.exempt(emergency_bp)
 
+    # ─────────────────────────────────────────
+    # Error Handlers
+    # ─────────────────────────────────────────
     register_error_handlers(app)
 
+    # ─────────────────────────────────────────
+    # Health Check
+    # ─────────────────────────────────────────
     @app.route("/")
     def home():
         return {"status": "Backend running successfully"}
 
+    # ─────────────────────────────────────────
+    # Blueprints
+    # ─────────────────────────────────────────
     app.register_blueprint(auth_bp,      url_prefix="/api/v1/auth")
     app.register_blueprint(hospital_bp,  url_prefix="/api/v1/hospital")
     app.register_blueprint(admin_bp)
