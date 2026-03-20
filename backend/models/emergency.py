@@ -5,44 +5,44 @@ from datetime import datetime
 class EmergencyRequest(db.Model):
     __tablename__ = "emergency_requests"
 
-    emergency_id = db.Column(db.Integer, primary_key=True)
-
-    # Patient / accident info
+    emergency_id         = db.Column(db.Integer, primary_key=True)
     patient_name         = db.Column(db.String(100), nullable=True)
     accident_description = db.Column(db.Text, nullable=True)
     latitude             = db.Column(db.Float, nullable=False)
     longitude            = db.Column(db.Float, nullable=False)
-    emergency_type       = db.Column(db.String(100), nullable=False)
 
-    # Severity
-    severity = db.Column(
-        db.Enum("critical", "high", "medium", "low", name="emergency_severity"),
-        nullable=False,
-        default="medium",
-        index=True
+    # ✅ Expanded emergency types
+    emergency_type = db.Column(
+        db.Enum(
+            "trauma", "cardiac", "respiratory", "neurological",
+            "orthopaedic", "maternity", "ophthalmology", "ent",
+            "paediatric", "oncology", "dermatology", "urology",
+            "psychiatry", "other",
+            name="emergency_type_enum"
+        ),
+        nullable=False
     )
 
-    # Status — full lifecycle
+    severity = db.Column(
+        db.Enum("critical", "high", "medium", "low", name="emergency_severity"),
+        nullable=False, default="medium", index=True
+    )
+
     status = db.Column(
         db.Enum(
             "pending", "allocated", "en_route", "arrived",
             "in_progress", "completed", "cancelled", "escalated",
             name="emergency_status"
         ),
-        default="pending",
-        index=True
+        default="pending", index=True
     )
 
-    # Whether the receiving hospital has acknowledged the incoming emergency
     acknowledged = db.Column(db.Boolean, default=False, nullable=False)
-
     hospital_id  = db.Column(db.Integer, db.ForeignKey("hospital.hospital_id"),    index=True)
     ambulance_id = db.Column(db.Integer, db.ForeignKey("ambulances.ambulance_id"), index=True)
-
     created_at   = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     sla_deadline = db.Column(db.DateTime, nullable=True, index=True)
 
-    # Relationships
     hospital  = db.relationship("Hospital",  back_populates="emergencies")
     ambulance = db.relationship("Ambulance", back_populates="emergencies")
 
@@ -69,7 +69,6 @@ class EmergencyRequest(db.Model):
                 "ambulance_id":   self.ambulance.ambulance_id,
                 "vehicle_number": self.ambulance.vehicle_number,
                 "driver_name":    self.ambulance.driver_name,
-                # ✅ Fix: added so LiveMap can draw road route from ambulance → emergency
                 "latitude":       self.ambulance.latitude,
                 "longitude":      self.ambulance.longitude,
             }
