@@ -13,7 +13,7 @@ export const useSocketEvents = () => {
     const entityId = currentUser.entity_id;
     let roomName = '';
 
-    // Join room
+    // ── Join appropriate room ─────────────────────────────────────────────
     if (role === 'admin') {
       roomName = 'admin';
       socket.emit('join_admin');
@@ -25,77 +25,86 @@ export const useSocketEvents = () => {
       socket.emit('join_ambulance', { ambulance_id: entityId });
     }
 
-    // 1. SLA Breach (Admin Only)
+    // ── 1. SLA Breach (Admin Only) ────────────────────────────────────────
     const handleSlaBreach = (data: any) => {
-      toast.error(`SLA Breached: Emergency #${data.emergency_id} (${data.severity}) has exceeded its deadline.`, {
+      toast.error(`SLA Breached: Emergency #${data.emergency_id} (${data.severity})`, {
         description: `Patient: ${data.patient_name || 'Unknown'}`,
-        duration: 0, // Persistent
+        duration: 0,
       });
-      fetchDashboardStats(); // Refresh breach counts
+      fetchDashboardStats();
     };
 
-    // 2. Availability Updated (Admin visibility, Store update)
+    // ── 2. Availability Updated ───────────────────────────────────────────
     const handleAvailabilityUpdated = (data: any) => {
       if (role === 'admin') {
-        toast.info(`Hospital availability updated: ${data.hospital_name || data.hospital_id}`, {
+        toast.info(`Hospital availability updated`, {
           description: `Beds: ${data.available_beds}`,
         });
       }
-      
-      // Update store
-      useStore.setState((s) => ({
-        hospitals: s.hospitals.map((h) =>
+      useStore.setState(s => ({
+        hospitals: s.hospitals.map(h =>
           h.hospital_id === data.hospital_id
-            ? { ...h, available_beds: data.available_beds, status: data.status as any }
+            ? { ...h, available_beds: data.available_beds, status: data.status }
             : h
         ),
       }));
     };
 
-    // 3. Emergency Allocated (Hospital Only)
+    // ── 3. Emergency Allocated (Hospital) ─────────────────────────────────
     const handleEmergencyAllocated = (data: any) => {
       toast.warning('New Emergency Allocated!', {
         description: `Emergency #${data.emergency_id} allocated to your hospital.`,
       });
-      fetchEmergencies(); // Refresh active list
+      fetchEmergencies();
     };
 
-    // 4. Emergency Acknowledged (Ambulance Only)
+    // ── 4. Emergency Acknowledged (Ambulance) ─────────────────────────────
     const handleEmergencyAcknowledged = (data: any) => {
       toast.success('Emergency Acknowledged', {
         description: `Assigned Hospital: ${data.hospital_name}`,
       });
-      fetchEmergencies(); // Refresh status
+      fetchEmergencies();
     };
 
-    // 5. Emergency Status Updated (Admin visibility, Store update)
+    // ── 5. Emergency Status Updated ───────────────────────────────────────
     const handleEmergencyStatusUpdated = (data: any) => {
-      // Update store
-      useStore.setState((s) => ({
-        emergencies: s.emergencies.map((e) =>
+      useStore.setState(s => ({
+        emergencies: s.emergencies.map(e =>
           e.emergency_id === data.emergency_id ? { ...e, status: data.new_status } : e
         ),
       }));
     };
 
-    // 6. Ambulance Location Update (Admin, Hospital, Ambulance)
+    // ── 6. ✅ Ambulance Location Update — core fix ────────────────────────
     const handleAmbulanceLocationUpdate = (data: any) => {
-      // Update store
-      useStore.setState((s) => ({
-        ambulances: s.ambulances.map((a) =>
-          a.ambulance_id === data.ambulance_id
-            ? { 
-                ...a, 
-                latitude: data.latitude, 
-                longitude: data.longitude,
-                last_updated: data.timestamp 
-              }
+      const { ambulance_id, latitude, longitude, timestamp } = data;
+
+      // A: Update ambulances[] store — keeps Admin map live
+      useStore.setState(s => ({
+        ambulances: s.ambulances.map(a =>
+          a.ambulance_id === ambulance_id
+            ? { ...a, latitude, longitude, last_updated: timestamp }
             : a
+        ),
+
+        // B: ✅ Also update ambulance coords INSIDE emergencies[]
+        // This keeps Hospital map live without re-fetching from API
+        emergencies: s.emergencies.map(e =>
+          e.ambulance_id === ambulance_id && e.ambulance
+            ? {
+              ...e,
+              ambulance: {
+                ...e.ambulance,
+                latitude,
+                longitude,
+              },
+            }
+            : e
         ),
       }));
     };
 
-    // Register listeners
+    // ── Register listeners ────────────────────────────────────────────────
     socket.on('sla_breach', handleSlaBreach);
     socket.on('availability_updated', handleAvailabilityUpdated);
     socket.on('emergency_allocated', handleEmergencyAllocated);
@@ -103,7 +112,7 @@ export const useSocketEvents = () => {
     socket.on('emergency_status_updated', handleEmergencyStatusUpdated);
     socket.on('ambulance_location_update', handleAmbulanceLocationUpdate);
 
-    // Cleanup
+    // ── Cleanup ───────────────────────────────────────────────────────────
     return () => {
       socket.off('sla_breach', handleSlaBreach);
       socket.off('availability_updated', handleAvailabilityUpdated);
@@ -111,10 +120,8 @@ export const useSocketEvents = () => {
       socket.off('emergency_acknowledged', handleEmergencyAcknowledged);
       socket.off('emergency_status_updated', handleEmergencyStatusUpdated);
       socket.off('ambulance_location_update', handleAmbulanceLocationUpdate);
-      
-      if (roomName) {
-        socket.emit('leave', { room: roomName });
-      }
+
+      if (roomName) socket.emit('leave', { room: roomName });
     };
   }, [currentUser, fetchEmergencies, fetchDashboardStats]);
 };

@@ -39,7 +39,11 @@ function CapacityBar({ value, max, color }: { value: number; max: number; color:
 }
 
 export default function HospitalDashboard() {
-  const { currentUser, ambulances, fetchHospitalEmergencies, acknowledgeEmergency, updateBeds, fetchMyHospital } = useStore();
+  const {
+    currentUser, emergencies, fetchHospitalEmergencies,
+    acknowledgeEmergency, updateBeds, fetchMyHospital,
+  } = useStore();
+
   const [activeEmergencies, setActiveEmergencies] = useState<BackendEmergency[]>([]);
   const [resolvedEmergencies, setResolvedEmergencies] = useState<BackendEmergency[]>([]);
   const [hospital, setHospital] = useState<BackendHospital | null>(null);
@@ -52,7 +56,8 @@ export default function HospitalDashboard() {
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
 
   const effectiveHospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
-  const isReadOnly = currentUser?.role === 'ambulance' || (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveHospitalId);
+  const isReadOnly = currentUser?.role === 'ambulance' ||
+    (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveHospitalId);
 
   const totalBeds = hospital?.available_beds ?? 0;
   const generalBeds = Math.round(totalBeds * 0.7);
@@ -60,9 +65,7 @@ export default function HospitalDashboard() {
   const erBeds = Math.round(totalBeds * 0.1);
 
   const loadData = async () => {
-    if (currentUser?.role !== 'hospital' && hospitals.length === 0) {
-      await fetchHospitals();
-    }
+    if (currentUser?.role !== 'hospital' && hospitals.length === 0) await fetchHospitals();
     const hospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
     if (!hospitalId) { setLoading(false); return; }
 
@@ -88,11 +91,34 @@ export default function HospitalDashboard() {
     return () => clearInterval(interval);
   }, [effectiveHospitalId, hospitals.length]);
 
+  // ✅ Fix 3: When socket updates emergencies in store, sync ambulance coords
+  // into local activeEmergencies so the map re-renders with new position
+  useEffect(() => {
+    if (emergencies.length === 0) return;
+    setActiveEmergencies(prev =>
+      prev.map(local => {
+        const updated = emergencies.find(e => e.emergency_id === local.emergency_id);
+        if (!updated?.ambulance) return local;
+        // Only update ambulance lat/lng — preserve rest of local state
+        return {
+          ...local,
+          ambulance: {
+            ...local.ambulance!,
+            latitude: updated.ambulance.latitude,
+            longitude: updated.ambulance.longitude,
+          },
+        };
+      })
+    );
+  }, [emergencies]);
+
   const handleAcknowledge = async (emergencyId: number) => {
     setAcknowledging(emergencyId);
     try {
       await acknowledgeEmergency(emergencyId);
-      setActiveEmergencies(prev => prev.map(e => e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e));
+      setActiveEmergencies(prev =>
+        prev.map(e => e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e)
+      );
     } catch (err: any) { alert(err.message || 'Failed to acknowledge'); }
     finally { setAcknowledging(null); }
   };
@@ -128,7 +154,7 @@ export default function HospitalDashboard() {
           </div>
           <select
             className="h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary min-w-[200px]"
-            onChange={(e) => setSelectedHospitalId(Number(e.target.value))}
+            onChange={e => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
           >
             <option value="" disabled>
@@ -176,7 +202,7 @@ export default function HospitalDashboard() {
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Viewing:</span>
           <select
             className="h-8 px-2 rounded-md bg-input border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-            onChange={(e) => setSelectedHospitalId(Number(e.target.value))}
+            onChange={e => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
           >
             {hospitals.map(h => <option key={h.hospital_id} value={h.hospital_id}>{h.name}</option>)}
@@ -279,12 +305,7 @@ export default function HospitalDashboard() {
                           🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
                           {hospital?.latitude && hospital?.longitude && e.ambulance?.latitude && e.ambulance?.longitude && (
                             <span className="text-cyan-400 ml-1">
-                              · {haversineKm(
-                                hospital.latitude,
-                                hospital.longitude,
-                                e.ambulance.latitude,
-                                e.ambulance.longitude
-                              ).toFixed(1)} km
+                              · {haversineKm(hospital.latitude, hospital.longitude, e.ambulance.latitude, e.ambulance.longitude).toFixed(1)} km
                             </span>
                           )}
                         </span>
@@ -347,19 +368,18 @@ export default function HospitalDashboard() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/20">
             <span className="text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2">
               <MapPin className="h-4 w-4 text-primary" /> Tracking Map
+              {/* ✅ Live pulse indicator */}
+              <span className="relative flex h-2 w-2 ml-1">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+              </span>
             </span>
-            {/* Legend */}
             <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-1 rounded" style={{ background: '#f97316' }} /> 🚑→🚨
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-1 rounded" style={{ background: '#22c55e' }} /> 🚨→🏥
-              </span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-1 rounded" style={{ background: '#f97316' }} /> 🚑→🚨</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-1 rounded" style={{ background: '#22c55e' }} /> 🚨→🏥</span>
             </div>
           </div>
 
-          {/* ✅ Fixed: ambulance coords now come from emergency.ambulance object directly */}
           <LiveMap
             hospitals={[hospital]}
             emergencies={activeEmergencies.map(e => ({
