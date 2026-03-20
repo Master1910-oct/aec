@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import {
   Ambulance, Building2, AlertTriangle, CheckCircle2,
-  Activity, Loader2, UserPlus, Ban, RefreshCw, Clock
+  Loader2, UserPlus, Ban, RefreshCw, Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -46,7 +46,6 @@ function AmbulanceStatusChip({ status }: { status: string }) {
   return <span className={cn('px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider', map[status] ?? 'bg-muted text-muted-foreground')}>{status.replace('_', ' ')}</span>;
 }
 
-// Static chart data (augmented with real summary later)
 const RESPONSE_DATA = [
   { t: '00:00', v: 6.2 }, { t: '04:00', v: 7.1 }, { t: '08:00', v: 9.4 },
   { t: '10:00', v: 10.2 }, { t: '12:00', v: 9.8 }, { t: '16:00', v: 8.6 },
@@ -57,22 +56,32 @@ const WEEKLY_DATA = [
   { d: 'Thu', c: 27, h: 18 }, { d: 'Fri', c: 23, h: 14 }, { d: 'Sat', c: 16, h: 10 }, { d: 'Sun', c: 12, h: 7 },
 ];
 
+const ALL_SPECIALITIES = ['trauma', 'cardiac', 'respiratory', 'neurological', 'other'];
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
   const {
     stats, emergencies, hospitals, ambulances, adminUsers,
     fetchDashboardStats, fetchEmergencies, fetchHospitals, fetchAmbulances, fetchAdminUsers,
-    createUser, deactivateUser,
+    createUser, deactivateUser, updateSpecialities,
   } = useStore();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeSection, setActiveSection] = useState<'overview' | 'fleet' | 'users'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'fleet' | 'users' | 'hospitals'>('overview');
+
+  // User creation state
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'ambulance', entity_id: '' });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+
+  // ✅ Speciality editor state
+  const [editingHospitalId, setEditingHospitalId] = useState<number | null>(null);
+  const [editingSpecs, setEditingSpecs] = useState<string[]>([]);
+  const [savingSpecs, setSavingSpecs] = useState(false);
+  const [specError, setSpecError] = useState('');
 
   const loadAll = async () => {
     setRefreshing(true);
@@ -83,21 +92,56 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadAll();
-    const interval = setInterval(() => { fetchDashboardStats(); fetchEmergencies(); fetchAmbulances(); }, 15000);
+    const interval = setInterval(() => {
+      fetchDashboardStats(); fetchEmergencies(); fetchAmbulances();
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError('');
-    if (!newUser.name || !newUser.email || !newUser.password) { setCreateError('Name, email and password are required'); return; }
+    if (!newUser.name || !newUser.email || !newUser.password) {
+      setCreateError('Name, email and password are required'); return;
+    }
     setCreating(true);
     try {
-      await createUser({ name: newUser.name, email: newUser.email, password: newUser.password, role: newUser.role, entity_id: newUser.entity_id ? parseInt(newUser.entity_id) : undefined });
+      await createUser({
+        name: newUser.name, email: newUser.email, password: newUser.password,
+        role: newUser.role, entity_id: newUser.entity_id ? parseInt(newUser.entity_id) : undefined,
+      });
       setShowCreateUser(false);
       setNewUser({ name: '', email: '', password: '', role: 'ambulance', entity_id: '' });
     } catch (err: any) { setCreateError(err.message || 'Failed to create user'); }
     finally { setCreating(false); }
+  };
+
+  // ✅ Speciality handlers
+  const handleEditSpecs = (hospital: any) => {
+    setEditingHospitalId(hospital.hospital_id);
+    setEditingSpecs(hospital.specialities ?? []);
+    setSpecError('');
+  };
+
+  const handleToggleSpec = (spec: string) => {
+    setEditingSpecs(prev =>
+      prev.includes(spec) ? prev.filter(s => s !== spec) : [...prev, spec]
+    );
+  };
+
+  const handleSaveSpecs = async () => {
+    if (!editingHospitalId) return;
+    if (editingSpecs.length === 0) { setSpecError('Select at least one speciality'); return; }
+    setSavingSpecs(true);
+    setSpecError('');
+    try {
+      await updateSpecialities(editingHospitalId, editingSpecs);
+      setEditingHospitalId(null);
+    } catch (err: any) {
+      setSpecError(err.message || 'Failed to update specialities');
+    } finally {
+      setSavingSpecs(false);
+    }
   };
 
   if (loading) {
@@ -130,30 +174,10 @@ export default function AdminDashboard() {
       {/* ── Stats Bar ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          {
-            label: 'Active Units', icon: Ambulance,
-            value: ambulances.filter(a => a.status === 'ON_CALL').length,
-            sub: `of ${ambulances.length} total`,
-            color: 'text-cyan-400',
-          },
-          {
-            label: 'Available Hospitals', icon: Building2,
-            value: hospitals.filter(h => (h.available_beds ?? 0) > 0).length,
-            sub: `of ${hospitals.length} total`,
-            color: 'text-blue-400',
-          },
-          {
-            label: 'Avg Response', icon: Clock,
-            value: '—',
-            sub: 'Target < 8 min',
-            color: 'text-yellow-400',
-          },
-          {
-            label: 'Critical Alerts', icon: AlertTriangle,
-            value: criticalEmergencies.length,
-            sub: criticalEmergencies.length > 0 ? 'Requires attention' : 'All clear',
-            color: criticalEmergencies.length > 0 ? 'text-red-400' : 'text-muted-foreground',
-          },
+          { label: 'Active Units', icon: Ambulance, value: ambulances.filter(a => a.status === 'ON_CALL').length, sub: `of ${ambulances.length} total`, color: 'text-cyan-400' },
+          { label: 'Available Hospitals', icon: Building2, value: hospitals.filter(h => (h.available_beds ?? 0) > 0).length, sub: `of ${hospitals.length} total`, color: 'text-blue-400' },
+          { label: 'Avg Response', icon: Clock, value: '—', sub: 'Target < 8 min', color: 'text-yellow-400' },
+          { label: 'Critical Alerts', icon: AlertTriangle, value: criticalEmergencies.length, sub: criticalEmergencies.length > 0 ? 'Requires attention' : 'All clear', color: criticalEmergencies.length > 0 ? 'text-red-400' : 'text-muted-foreground' },
         ].map(card => (
           <div key={card.label} className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-start justify-between mb-3">
@@ -168,7 +192,7 @@ export default function AdminDashboard() {
 
       {/* ── Section Tabs ── */}
       <div className="flex items-center gap-0.5 rounded-lg bg-secondary/50 p-1 w-fit">
-        {(['overview', 'fleet', 'users'] as const).map(s => (
+        {(['overview', 'fleet', 'users', 'hospitals'] as const).map(s => (
           <button key={s} onClick={() => setActiveSection(s)}
             className={cn('px-4 py-1.5 rounded-md text-xs font-mono uppercase tracking-wider transition-colors',
               activeSection === s ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
@@ -183,14 +207,16 @@ export default function AdminDashboard() {
       {/* ════ OVERVIEW ════ */}
       {activeSection === 'overview' && (
         <div className="space-y-4">
-          {/* Map + Assignments */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
             {/* Live Map */}
             <div className="lg:col-span-3 rounded-lg border border-border overflow-hidden">
               <div className="flex items-center justify-between bg-secondary/20 px-4 py-2.5 border-b border-border">
                 <span className="text-xs font-mono font-bold uppercase tracking-wider">Live Tracking</span>
                 <span className="flex items-center gap-1.5 text-[10px] font-mono text-green-400 uppercase">
-                  <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" /></span>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+                  </span>
                   Live
                 </span>
               </div>
@@ -231,7 +257,7 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* Active Assignments Panel */}
+            {/* Active Assignments */}
             <div className="lg:col-span-2 rounded-lg border border-border bg-card flex flex-col overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border bg-secondary/20">
                 <span className="text-xs font-mono font-bold uppercase tracking-wider">Active Assignments</span>
@@ -283,9 +309,7 @@ export default function AdminDashboard() {
                       <td className="px-4 py-2.5"><AmbulanceStatusChip status={a.status} /></td>
                       <td className="px-4 py-2.5">{a.driver_name ?? 'Unknown'}</td>
                       <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">
-                        {a.latitude && a.longitude 
-                          ? `${a.latitude.toFixed(4)}, ${a.longitude.toFixed(4)}` 
-                          : 'No GPS'}
+                        {a.latitude && a.longitude ? `${a.latitude.toFixed(4)}, ${a.longitude.toFixed(4)}` : 'No GPS'}
                       </td>
                     </tr>
                   ))}
@@ -297,9 +321,8 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Charts Row */}
+          {/* Charts */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Response Time */}
             <div className="rounded-lg border border-border bg-card p-4">
               <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Response Time (24H)</span>
               <ResponsiveContainer width="100%" height={120}>
@@ -311,8 +334,6 @@ export default function AdminDashboard() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-
-            {/* Weekly Assignments */}
             <div className="rounded-lg border border-border bg-card p-4">
               <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Weekly Assignments</span>
               <ResponsiveContainer width="100%" height={120}>
@@ -325,8 +346,6 @@ export default function AdminDashboard() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
-            {/* Severity Distribution */}
             <div className="rounded-lg border border-border bg-card p-4">
               <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Severity Distribution</span>
               {severityData.length > 0 ? (
@@ -334,9 +353,7 @@ export default function AdminDashboard() {
                   <ResponsiveContainer width={90} height={90}>
                     <PieChart>
                       <Pie data={severityData} cx="50%" cy="50%" innerRadius={28} outerRadius={42} dataKey="value" strokeWidth={0}>
-                        {severityData.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} />
-                        ))}
+                        {severityData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>
@@ -468,6 +485,98 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* ════ HOSPITALS ════ */}
+      {activeSection === 'hospitals' && (
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/20">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider">Hospital Specialities</span>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {hospitals.length} hospitals · Specialities determine automatic allocation
+            </span>
+          </div>
+
+          <div className="divide-y divide-border">
+            {hospitals.map(h => (
+              <div key={h.hospital_id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+
+                    {/* Hospital header */}
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-xs font-bold font-mono text-cyan-400">#{h.hospital_id}</span>
+                      <span className="text-sm font-medium truncate">{h.name}</span>
+                      <span className={cn(
+                        'text-[10px] font-mono px-1.5 py-0.5 rounded border',
+                        h.available_beds > 0
+                          ? 'text-green-400 border-green-500/40 bg-green-500/10'
+                          : 'text-red-400 border-red-500/40 bg-red-500/10'
+                      )}>
+                        {h.available_beds > 0 ? `${h.available_beds} beds` : 'Full'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground font-mono mb-2">{h.address}</p>
+
+                    {/* Speciality editor */}
+                    {editingHospitalId === h.hospital_id ? (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          {ALL_SPECIALITIES.map(spec => (
+                            <button key={spec} onClick={() => handleToggleSpec(spec)}
+                              className={cn(
+                                'px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider border transition-colors',
+                                editingSpecs.includes(spec)
+                                  ? 'bg-primary/20 text-primary border-primary/50'
+                                  : 'bg-secondary text-muted-foreground border-border hover:border-primary/30'
+                              )}>
+                              {editingSpecs.includes(spec) ? '✓ ' : ''}{spec}
+                            </button>
+                          ))}
+                        </div>
+                        {specError && <p className="text-xs text-red-400 font-mono">{specError}</p>}
+                        <div className="flex gap-2">
+                          <button onClick={handleSaveSpecs} disabled={savingSpecs}
+                            className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-mono hover:bg-primary/80 disabled:opacity-50">
+                            {savingSpecs ? 'Saving...' : 'Save'}
+                          </button>
+                          <button onClick={() => setEditingHospitalId(null)}
+                            className="px-3 py-1 rounded-md bg-secondary text-muted-foreground text-xs font-mono hover:text-foreground">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(h.specialities ?? []).length > 0
+                          ? h.specialities.map(s => (
+                            <span key={s} className="px-2 py-0.5 rounded bg-secondary text-[10px] font-mono text-secondary-foreground capitalize">{s}</span>
+                          ))
+                          : <span className="text-[10px] text-muted-foreground font-mono italic">
+                            No specialities — won't match specific emergency types
+                          </span>
+                        }
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Edit button */}
+                  {editingHospitalId !== h.hospital_id && (
+                    <button onClick={() => handleEditSpecs(h)}
+                      className="shrink-0 px-3 py-1 rounded-md border border-border text-xs font-mono text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+                      Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {hospitals.length === 0 && (
+              <div className="p-10 text-center text-muted-foreground font-mono text-sm">No hospitals found</div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

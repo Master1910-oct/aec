@@ -35,7 +35,6 @@ export interface BackendEmergency {
     ambulance_id: number;
     vehicle_number: string;
     driver_name: string;
-    // ✅ Fix: added so LiveMap can draw ambulance → scene route
     latitude: number | null;
     longitude: number | null;
   } | null;
@@ -133,6 +132,8 @@ interface AppState {
   updateAmbulanceLocation: (latitude: number, longitude: number) => Promise<void>;
   acknowledgeEmergency: (emergencyId: number) => Promise<void>;
   updateBeds: (hospitalId: number, beds: number) => Promise<void>;
+  // ✅ New action
+  updateSpecialities: (hospitalId: number, specialities: string[]) => Promise<void>;
   createUser: (payload: { name: string; email: string; password: string; role: string; entity_id?: number }) => Promise<void>;
   deactivateUser: (userId: number) => Promise<void>;
   logout: () => void;
@@ -159,48 +160,38 @@ export const useStore = create<AppState>((set, get) => ({
       const user = res.data;
       set({ currentUser: user, activeRole: user.role as any });
       return user;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   },
 
   fetchEmergencies: async () => {
     try {
       const res = await api.get<{ data: BackendEmergency[] }>('/api/v1/emergency/');
       set({ emergencies: res.data });
-    } catch (err) {
-      console.error('fetchEmergencies failed', err);
-    }
+    } catch (err) { console.error('fetchEmergencies failed', err); }
   },
 
   fetchHospitals: async () => {
     try {
       const res = await api.get<{ data: BackendHospital[] }>('/api/v1/hospital/');
       set({ hospitals: res.data });
-    } catch (err) {
-      console.error('fetchHospitals failed', err);
-    }
+    } catch (err) { console.error('fetchHospitals failed', err); }
   },
 
   fetchAmbulances: async () => {
     try {
       const res = await api.get<{ data: BackendAmbulance[] }>('/api/v1/ambulance/locations');
       set({ ambulances: res.data });
-    } catch (err) {
-      console.error('fetchAmbulances failed', err);
-    }
+    } catch (err) { console.error('fetchAmbulances failed', err); }
   },
 
   fetchDashboardStats: async () => {
     try {
       const res = await api.get<{ data: SystemStats }>('/api/v1/admin/stats');
       set({ stats: res.data });
-    } catch (err) {
-      console.error('fetchDashboardStats failed', err);
-    }
+    } catch (err) { console.error('fetchDashboardStats failed', err); }
   },
 
-  fetchHospitalEmergencies: async (hospitalId: number) => {
+  fetchHospitalEmergencies: async (hospitalId) => {
     const res = await api.get<{ data: { active: BackendEmergency[]; resolved: BackendEmergency[] } }>(
       `/api/v1/hospital/${hospitalId}/emergencies`
     );
@@ -211,27 +202,21 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const res = await api.get<{ data: AdminUser[] }>('/api/v1/admin/users');
       set({ adminUsers: res.data });
-    } catch (err) {
-      console.error('fetchAdminUsers failed', err);
-    }
+    } catch (err) { console.error('fetchAdminUsers failed', err); }
   },
 
   fetchMyHospital: async () => {
     try {
       const res = await api.get<{ data: BackendHospital }>('/api/v1/hospital/me');
       return res.data;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   },
 
   fetchMyAmbulance: async () => {
     try {
       const res = await api.get<{ data: BackendAmbulance }>('/api/v1/ambulance/me');
       return res.data;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   },
 
   submitEmergency: async (payload) => {
@@ -246,16 +231,14 @@ export const useStore = create<AppState>((set, get) => ({
     set(s => ({
       emergencies: s.emergencies.map(e =>
         e.emergency_id === emergencyId ? { ...e, status } : e
-      )
+      ),
     }));
   },
 
   updateAmbulanceLocation: async (lat, lon) => {
     try {
       await api.post('/api/v1/ambulance/location', { latitude: lat, longitude: lon });
-    } catch (err) {
-      console.error('updateAmbulanceLocation failed', err);
-    }
+    } catch (err) { console.error('updateAmbulanceLocation failed', err); }
   },
 
   acknowledgeEmergency: async (emergencyId) => {
@@ -263,7 +246,7 @@ export const useStore = create<AppState>((set, get) => ({
     set(s => ({
       emergencies: s.emergencies.map(e =>
         e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e
-      )
+      ),
     }));
   },
 
@@ -274,7 +257,17 @@ export const useStore = create<AppState>((set, get) => ({
         h.hospital_id === hospitalId
           ? { ...h, available_beds: beds, status: beds > 0 ? 'GREEN' : 'RED' }
           : h
-      )
+      ),
+    }));
+  },
+
+  // ✅ New: update specialities and sync store
+  updateSpecialities: async (hospitalId, specialities) => {
+    await api.put(`/api/v1/admin/hospitals/${hospitalId}/specialities`, { specialities });
+    set(s => ({
+      hospitals: s.hospitals.map(h =>
+        h.hospital_id === hospitalId ? { ...h, specialities } : h
+      ),
     }));
   },
 

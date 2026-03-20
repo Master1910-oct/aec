@@ -7,6 +7,8 @@ from utils.decorators import token_required, roles_required
 
 admin_bp = Blueprint("admin_bp", __name__, url_prefix="/api/v1/admin")
 
+VALID_SPECIALITIES = ["trauma", "cardiac", "respiratory", "neurological", "other"]
+
 
 # ==========================================
 # 🛏 UPDATE AVAILABILITY (legacy + v1)
@@ -30,10 +32,73 @@ def update_availability(hospital_id):
 
     status = "GREEN" if beds > 0 else "RED"
     payload = {"hospital_id": hospital_id, "available_beds": beds, "status": status}
-
     socketio.emit("availability_updated", payload, room="admin")
 
     return success_response(message="Availability updated", data=payload)
+
+
+# ==========================================
+# 🏥 UPDATE HOSPITAL SPECIALITIES
+# ==========================================
+@admin_bp.route("/hospitals/<int:hospital_id>/specialities", methods=["PUT"])
+@token_required
+@roles_required("admin")
+def update_hospital_specialities(hospital_id):
+    try:
+        data = request.get_json()
+
+        if not data or "specialities" not in data:
+            return error_response("specialities array is required", 400)
+
+        specialities = data["specialities"]
+
+        if not isinstance(specialities, list):
+            return error_response("specialities must be an array", 400)
+
+        # Validate each speciality
+        invalid = [s for s in specialities if s not in VALID_SPECIALITIES]
+        if invalid:
+            return error_response(
+                f"Invalid specialities: {invalid}. Must be from: {VALID_SPECIALITIES}", 400
+            )
+
+        hospital = Hospital.query.get(hospital_id)
+        if not hospital:
+            return error_response("Hospital not found", 404)
+
+        # Store as comma-separated string (matches existing model format)
+        hospital.specialities = ",".join(specialities)
+        db.session.commit()
+
+        return success_response(
+            message="Hospital specialities updated",
+            data={
+                "hospital_id": hospital_id,
+                "name": hospital.name,
+                "specialities": hospital.get_specialities_list(),
+            }
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e), 500)
+
+
+# ==========================================
+# 🏥 GET ALL HOSPITALS (admin)
+# ==========================================
+@admin_bp.route("/hospitals", methods=["GET"])
+@token_required
+@roles_required("admin")
+def list_hospitals():
+    try:
+        hospitals = Hospital.query.filter_by(is_active=True).all()
+        return success_response(
+            message="Hospitals fetched",
+            data=[h.to_dict() for h in hospitals]
+        )
+    except Exception as e:
+        return error_response(str(e), 500)
 
 
 # ==========================================
@@ -53,11 +118,11 @@ def list_users():
             entity_id = u.ambulance.ambulance_id
 
         data.append({
-            "user_id": u.user_id,
-            "name": u.name,
-            "email": u.email,
-            "role": u.role,
-            "entity_id": entity_id,
+            "user_id":    u.user_id,
+            "name":       u.name,
+            "email":      u.email,
+            "role":       u.role,
+            "entity_id":  entity_id,
             "created_at": u.created_at.isoformat() if u.created_at else None,
         })
 
@@ -89,7 +154,6 @@ def create_user():
     db.session.add(user)
     db.session.flush()
 
-    # Link to existing hospital or ambulance if entity_id provided
     entity_id = data.get("entity_id")
     if entity_id and data["role"] == "hospital":
         hospital = Hospital.query.get(entity_id)
@@ -121,8 +185,6 @@ def deactivate_user(user_id):
     if not user:
         return error_response("User not found", 404)
 
-    # Soft-deactivate by clearing password (they cannot log in)
-    # A proper implementation would add an is_active column; for now we prefix email
     if user.email.startswith("DEACTIVATED_"):
         return error_response("User is already deactivated", 400)
 
@@ -144,18 +206,19 @@ def list_ambulances():
         message="Ambulances fetched",
         data=[a.to_dict() for a in ambulances]
     )
+
+
+# ==========================================
+# 📊 STATS
+# ==========================================
 @admin_bp.route("/stats", methods=["GET"])
 @token_required
 @roles_required("admin")
 def get_stats():
-    from models import EmergencyRequest, Ambulance, Hospital, Availability
-    from database.db import db
-    from sqlalchemy import func
+    from models import EmergencyRequest
 
-    # active_units: count of ambulances with status ON_CALL
     active_units = Ambulance.query.filter_by(status="ON_CALL").count()
 
-    # available_hospitals: count of active hospitals with > 0 beds
     available_hospitals = (
         Hospital.query
         .join(Availability, Hospital.hospital_id == Availability.hospital_id)
@@ -163,22 +226,17 @@ def get_stats():
         .count()
     )
 
-    # critical_alerts: emergencies with severity critical and status not completed/cancelled
     critical_alerts = EmergencyRequest.query.filter(
         EmergencyRequest.severity == "critical",
         EmergencyRequest.status.notin_(["completed", "cancelled"])
     ).count()
 
-    # avg_response_time: Optional, we can set to None or calculate if we have a field
-    # We don't have response time tracking in models right now, so we return None
-    avg_response_time = None
-
     return success_response(
         message="Admin stats fetched successfully",
         data={
-            "active_units": active_units,
+            "active_units":        active_units,
             "available_hospitals": available_hospitals,
-            "avg_response_time": avg_response_time,
-            "critical_alerts": critical_alerts
+            "avg_response_time":   None,
+            "critical_alerts":     critical_alerts,
         }
     )
