@@ -2,14 +2,39 @@ import { useState, useEffect, useCallback } from 'react';
 import { useStore, BackendEmergency } from '@/store/useStore';
 import {
   MapPin, Radio, AlertTriangle, CheckCircle2, Navigation,
-  Loader2, Send, User, Gauge, Ambulance as AmbulanceIcon
+  Loader2, Send, User, Ambulance as AmbulanceIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import LiveMap from '@/components/map/LiveMap';
 
-const EMERGENCY_TYPES = ['trauma', 'cardiac', 'respiratory', 'neurological', 'other'] as const;
+// ✅ Expanded emergency types
+const EMERGENCY_TYPES = [
+  'trauma', 'cardiac', 'respiratory', 'neurological',
+  'orthopaedic', 'maternity', 'ophthalmology', 'ent',
+  'paediatric', 'oncology', 'dermatology', 'urology',
+  'psychiatry', 'other',
+] as const;
+
 const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+
+// Friendly display labels for emergency types
+const TYPE_LABELS: Record<string, string> = {
+  trauma: 'Trauma',
+  cardiac: 'Cardiac',
+  respiratory: 'Respiratory',
+  neurological: 'Neurological',
+  orthopaedic: 'Orthopaedic',
+  maternity: 'Maternity',
+  ophthalmology: 'Ophthalmology (Eye)',
+  ent: 'ENT (Ear/Nose/Throat)',
+  paediatric: 'Paediatric (Children)',
+  oncology: 'Oncology (Cancer)',
+  dermatology: 'Dermatology (Skin)',
+  urology: 'Urology',
+  psychiatry: 'Psychiatry',
+  other: 'Other',
+};
 
 function SeverityBadge({ severity }: { severity: string }) {
   const map: Record<string, string> = {
@@ -50,7 +75,8 @@ export default function AmbulancePanel() {
   const [selectedAmbulanceId, setSelectedAmbulanceId] = useState<number | null>(null);
 
   const effectiveAmbulanceId = currentUser?.role === 'ambulance' ? currentUser.entity_id : selectedAmbulanceId;
-  const isReadOnly = currentUser?.role === 'hospital' || (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveAmbulanceId);
+  const isReadOnly = currentUser?.role === 'hospital' ||
+    (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveAmbulanceId);
 
   const myActiveEmergency = submitted ?? emergencies.find(
     e => e.ambulance_id === effectiveAmbulanceId && !['completed', 'cancelled'].includes(e.status)
@@ -60,16 +86,14 @@ export default function AmbulancePanel() {
     if (!navigator.geolocation) return;
     setGpsLoading(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLon(pos.coords.longitude.toFixed(6)); setGpsLoading(false); },
+      pos => { setLat(pos.coords.latitude.toFixed(6)); setLon(pos.coords.longitude.toFixed(6)); setGpsLoading(false); },
       () => setGpsLoading(false),
       { timeout: 8000 }
     );
   }, []);
 
   const fetchStoreData = useCallback(async () => {
-    if (currentUser?.role !== 'ambulance' && ambulances.length === 0) {
-      await fetchAmbulances();
-    }
+    if (currentUser?.role !== 'ambulance' && ambulances.length === 0) await fetchAmbulances();
     if (currentUser?.role === 'ambulance') {
       const amb = await fetchMyAmbulance();
       setMyAmbulance(amb);
@@ -128,26 +152,14 @@ export default function AmbulancePanel() {
     finally { setStatusUpdating(false); }
   };
 
-  const getNextStatus = (current: string) => {
-    const map: Record<string, string> = { allocated: 'en_route', en_route: 'arrived', arrived: 'completed' };
-    return map[current] ?? null;
-  };
-
-  const getStatusLabel = (status: string) => {
-    const map: Record<string, string> = { allocated: 'Mark En Route', en_route: 'Mark Arrived', arrived: 'Mark Completed' };
-    return map[status] ?? status;
-  };
+  const getNextStatus = (s: string) => ({ allocated: 'en_route', en_route: 'arrived', arrived: 'completed' }[s] ?? null);
+  const getStatusLabel = (s: string) => ({ allocated: 'Mark En Route', en_route: 'Mark Arrived', arrived: 'Mark Completed' }[s] ?? s);
 
   const statusColor: Record<string, string> = {
     AVAILABLE: '#22c55e', ON_CALL: '#f97316', MAINTENANCE: '#6b7280',
     allocated: '#3b82f6', en_route: '#a855f7', arrived: '#06b6d4', completed: '#22c55e',
   };
 
-  // ─────────────────────────────────────────
-  // Build map data
-  // ─────────────────────────────────────────
-
-  // Ambulance marker — use current GPS position
   const mapAmbulances = lat && lon && effectiveAmbulanceId ? [{
     ambulance_id: effectiveAmbulanceId,
     vehicle_number: currentAmbulance?.vehicle_number ?? `Unit #${effectiveAmbulanceId}`,
@@ -157,7 +169,6 @@ export default function AmbulancePanel() {
     status: 'ON_CALL' as const,
   }] : [];
 
-  // Hospital marker — destination hospital from active emergency
   const mapHospitals = myActiveEmergency?.hospital ? [{
     hospital_id: myActiveEmergency.hospital.hospital_id,
     name: myActiveEmergency.hospital.name,
@@ -167,18 +178,15 @@ export default function AmbulancePanel() {
     status: 'GREEN' as const,
   }] : [];
 
-  // ✅ Emergency marker — the scene location with ambulance_id so LiveMap draws the road route
-  const mapEmergencies = myActiveEmergency &&
-    myActiveEmergency.latitude &&
-    myActiveEmergency.longitude ? [{
-      emergency_id: myActiveEmergency.emergency_id,
-      emergency_type: myActiveEmergency.emergency_type,
-      severity: myActiveEmergency.severity,
-      latitude: myActiveEmergency.latitude,
-      longitude: myActiveEmergency.longitude,
-      status: myActiveEmergency.status,
-      ambulance_id: effectiveAmbulanceId ?? undefined, // ← links ambulance to emergency so road route is drawn
-    }] : [];
+  const mapEmergencies = myActiveEmergency?.latitude && myActiveEmergency?.longitude ? [{
+    emergency_id: myActiveEmergency.emergency_id,
+    emergency_type: myActiveEmergency.emergency_type,
+    severity: myActiveEmergency.severity,
+    latitude: myActiveEmergency.latitude,
+    longitude: myActiveEmergency.longitude,
+    status: myActiveEmergency.status,
+    ambulance_id: effectiveAmbulanceId ?? undefined,
+  }] : [];
 
   return (
     <div className="space-y-4 animate-slide-in-up">
@@ -189,7 +197,7 @@ export default function AmbulancePanel() {
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Viewing:</span>
           <select
             className="h-8 px-2 rounded-md bg-input border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-            onChange={(e) => setSelectedAmbulanceId(Number(e.target.value))}
+            onChange={e => setSelectedAmbulanceId(Number(e.target.value))}
             value={selectedAmbulanceId ?? ''}
           >
             <option value="" disabled>
@@ -235,9 +243,7 @@ export default function AmbulancePanel() {
                   <span className={lat ? 'text-green-400' : 'text-muted-foreground'}>
                     {lat ? 'GPS Active' : (isReadOnly ? 'GPS Offline' : 'GPS Searching...')}
                     {isBroadcasting && (
-                      <span className="flex items-center gap-1 ml-2 text-[9px] text-primary animate-pulse border border-primary/30 px-1.5 py-0.5 rounded">
-                        BROADCASTING
-                      </span>
+                      <span className="flex items-center gap-1 ml-2 text-[9px] text-primary animate-pulse border border-primary/30 px-1.5 py-0.5 rounded">BROADCASTING</span>
                     )}
                   </span>
                   {!lat && !isReadOnly && (
@@ -274,15 +280,11 @@ export default function AmbulancePanel() {
 
           {/* ── Active Assignment ── */}
           {myActiveEmergency && (
-            <div className={cn(
-              'rounded-lg border bg-card overflow-hidden',
-              myActiveEmergency.severity === 'critical' ? 'border-red-500/50' : 'border-border'
-            )}>
+            <div className={cn('rounded-lg border bg-card overflow-hidden', myActiveEmergency.severity === 'critical' ? 'border-red-500/50' : 'border-border')}>
               <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-secondary/20">
                 <span className="text-xs font-mono font-bold uppercase tracking-wider">Active Assignment</span>
                 <SeverityBadge severity={myActiveEmergency.severity} />
               </div>
-
               <div className="p-4 space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
@@ -311,7 +313,7 @@ export default function AmbulancePanel() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                     <div>
                       <p className="text-[10px] text-muted-foreground font-mono mb-1">Condition</p>
-                      <p className="capitalize font-medium">{myActiveEmergency.emergency_type}</p>
+                      <p className="font-medium">{TYPE_LABELS[myActiveEmergency.emergency_type] ?? myActiveEmergency.emergency_type}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-muted-foreground font-mono mb-1">Description</p>
@@ -335,15 +337,14 @@ export default function AmbulancePanel() {
                     <Navigation className="h-4 w-4 text-green-400 shrink-0" />
                     <div>
                       <p className="font-bold text-sm">{myActiveEmergency.hospital.name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{myActiveEmergency.hospital.address} · Beds: {myActiveEmergency.hospital.hospital_id}</p>
+                      <p className="text-[10px] font-mono text-muted-foreground">{myActiveEmergency.hospital.address}</p>
                     </div>
                   </div>
                 )}
 
                 {myActiveEmergency.is_overdue && (
                   <div className="flex items-center gap-2 text-red-400 text-xs font-mono py-2 px-3 bg-red-500/10 rounded border border-red-500/30">
-                    <AlertTriangle className="h-4 w-4 animate-pulse" />
-                    SLA Deadline Breached
+                    <AlertTriangle className="h-4 w-4 animate-pulse" /> SLA Deadline Breached
                   </div>
                 )}
 
@@ -378,20 +379,11 @@ export default function AmbulancePanel() {
                   GPS Lock
                 </span>
               </div>
-
-              {/* ✅ Now passes emergencies so road route is drawn from ambulance → emergency scene */}
-              <LiveMap
-                ambulances={mapAmbulances}
-                hospitals={mapHospitals}
-                emergencies={mapEmergencies}
-                className="w-full h-[320px]"
-              />
-
-              {/* Legend */}
+              <LiveMap ambulances={mapAmbulances} hospitals={mapHospitals} emergencies={mapEmergencies} className="w-full h-[320px]" />
               <div className="flex items-center gap-4 px-4 py-2 border-t border-border bg-secondary/10 text-[10px] font-mono text-muted-foreground">
-                <span className="flex items-center gap-1.5">🚑 Your Location</span>
-                <span className="flex items-center gap-1.5">🚨 Emergency Scene</span>
-                <span className="flex items-center gap-1.5">🏥 Destination Hospital</span>
+                <span>🚑 Your Location</span>
+                <span>🚨 Emergency Scene</span>
+                <span>🏥 Destination Hospital</span>
               </div>
             </div>
           )}
@@ -403,7 +395,6 @@ export default function AmbulancePanel() {
                 <AmbulanceIcon className="h-4 w-4 text-primary" />
                 <span className="text-xs font-mono font-bold uppercase tracking-wider">Report Emergency</span>
               </div>
-
               <form onSubmit={handleSubmit} className="p-4 space-y-5">
                 {formError && <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">{formError}</div>}
 
@@ -419,7 +410,9 @@ export default function AmbulancePanel() {
                     <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Emergency Type</label>
                     <select value={emergencyType} onChange={e => setEmergencyType(e.target.value)}
                       className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary">
-                      {EMERGENCY_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                      {EMERGENCY_TYPES.map(t => (
+                        <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -434,8 +427,7 @@ export default function AmbulancePanel() {
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Location</label>
-                    <button type="button" onClick={detectGPS}
-                      className="flex items-center gap-1 text-[10px] font-mono text-primary hover:text-primary/80 transition-colors">
+                    <button type="button" onClick={detectGPS} className="flex items-center gap-1 text-[10px] font-mono text-primary hover:text-primary/80 transition-colors">
                       {gpsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Radio className="h-3 w-3" />}
                       {gpsLoading ? 'Detecting...' : 'Auto-detect GPS'}
                     </button>
@@ -459,7 +451,8 @@ export default function AmbulancePanel() {
               </form>
             </div>
           )}
-        </>)}
+        </>
+      )}
     </div>
   );
 }

@@ -16,6 +16,14 @@ emergency_bp = Blueprint(
     url_prefix="/api/v1/emergency"
 )
 
+# ✅ Expanded emergency types
+ALLOWED_TYPES = [
+    "trauma", "cardiac", "respiratory", "neurological",
+    "orthopaedic", "maternity", "ophthalmology", "ent",
+    "paediatric", "oncology", "dermatology", "urology",
+    "psychiatry", "other"
+]
+
 
 # ==========================================
 # 🚑 CREATE EMERGENCY (Ambulance role)
@@ -28,28 +36,18 @@ def create_emergency():
         data = request.get_json()
         user = g.current_user
 
-        # Required fields
         required_fields = ["latitude", "longitude", "emergency_type"]
         if not data or not all(field in data for field in required_fields):
-            return error_response(
-                "latitude, longitude and emergency_type are required", 400
-            )
+            return error_response("latitude, longitude and emergency_type are required", 400)
 
         severity = data.get("severity", "medium").lower()
-        allowed_severities = ["critical", "high", "medium", "low"]
-        if severity not in allowed_severities:
-            return error_response(
-                "Severity must be one of: critical, high, medium, low", 400
-            )
+        if severity not in ["critical", "high", "medium", "low"]:
+            return error_response("Severity must be one of: critical, high, medium, low", 400)
 
-        allowed_types = ["trauma", "cardiac", "respiratory", "neurological", "other"]
         emergency_type = data.get("emergency_type", "other").lower()
-        if emergency_type not in allowed_types:
-            return error_response(
-                "emergency_type must be one of: " + ", ".join(allowed_types), 400
-            )
+        if emergency_type not in ALLOWED_TYPES:
+            return error_response("emergency_type must be one of: " + ", ".join(ALLOWED_TYPES), 400)
 
-        # Create Emergency
         emergency = EmergencyRequest(
             patient_name=data.get("patient_name", "Unknown Patient"),
             accident_description=data.get("accident_description", ""),
@@ -59,24 +57,20 @@ def create_emergency():
             severity=severity,
             acknowledged=False,
         )
-        
-        # Initialize status via state machine (Bug 3)
+
         EmergencyStateMachine(emergency).initialize()
 
-        # SLA Deadlines
         sla_map = {"critical": 5, "high": 10, "medium": 20, "low": 30}
         emergency.sla_deadline = datetime.utcnow() + timedelta(minutes=sla_map[severity])
 
         db.session.add(emergency)
-        db.session.flush()  # get ID before allocation
+        db.session.flush()
 
-        # Allocate Hospital (with speciality match)
         hospital = allocate_hospital(emergency)
         if not hospital:
             db.session.rollback()
             return error_response("No hospital available", 400)
 
-        # Allocate Ambulance — use the requesting ambulance if role is ambulance
         ambulance_id = None
         if user["role"] == "ambulance" and user.get("entity_id"):
             ambulance_id = user["entity_id"]
@@ -91,14 +85,13 @@ def create_emergency():
 
         response_data = emergency.to_dict()
 
-        # 🔥 WebSocket: notify hospital and admin
         payload = {
-            "emergency_id": emergency.emergency_id,
-            "severity": emergency.severity,
-            "emergency_type": emergency.emergency_type,
-            "patient_name": emergency.patient_name,
-            "accident_description": emergency.accident_description,
-            "ambulance": emergency.ambulance.to_dict() if emergency.ambulance else None,
+            "emergency_id":          emergency.emergency_id,
+            "severity":              emergency.severity,
+            "emergency_type":        emergency.emergency_type,
+            "patient_name":          emergency.patient_name,
+            "accident_description":  emergency.accident_description,
+            "ambulance":             emergency.ambulance.to_dict() if emergency.ambulance else None,
         }
         socketio.emit("emergency_allocated", payload, room=f"hospital_{hospital.hospital_id}")
         socketio.emit("emergency_allocated", payload, room="admin")
@@ -123,12 +116,10 @@ def get_all_emergencies():
         emergencies = EmergencyRequest.query.order_by(
             EmergencyRequest.created_at.desc()
         ).all()
-
         return success_response(
             message="Emergencies fetched successfully",
             data=[e.to_dict() for e in emergencies]
         )
-
     except Exception as e:
         return error_response(str(e), 500)
 
@@ -142,7 +133,6 @@ def get_all_emergencies():
 def update_emergency_status(emergency_id):
     try:
         data = request.get_json()
-
         if not data or "status" not in data:
             return error_response("status is required", 400)
 
@@ -152,7 +142,6 @@ def update_emergency_status(emergency_id):
         if not emergency:
             return error_response("Emergency not found", 404)
 
-        # Ambulance can only update their own emergency
         user = g.current_user
         if user["role"] == "ambulance":
             if emergency.ambulance_id != user.get("entity_id"):
@@ -165,7 +154,6 @@ def update_emergency_status(emergency_id):
                 f"Invalid status transition from '{previous_status}' to '{new_status}'", 400
             )
 
-        # On completion → free resources
         if new_status == "completed":
             if emergency.ambulance:
                 emergency.ambulance.status = "AVAILABLE"
@@ -175,33 +163,29 @@ def update_emergency_status(emergency_id):
         emergency.status = new_status
         db.session.commit()
 
-        # 🔥 WebSocket: notify admin, hospital, and ambulance room
         event_payload = {
-            "emergency_id": emergency_id,
+            "emergency_id":    emergency_id,
             "previous_status": previous_status,
-            "new_status": new_status,
-            "ambulance_id": emergency.ambulance_id,
-            "updated_by": "ambulance"
+            "new_status":      new_status,
+            "ambulance_id":    emergency.ambulance_id,
+            "updated_by":      "ambulance"
         }
-        
+
         socketio.emit("emergency_status_updated", event_payload, room="admin")
-        
         if emergency.hospital_id:
             socketio.emit("emergency_status_updated", event_payload, room=f"hospital_{emergency.hospital_id}")
-            
         if emergency.ambulance_id:
             socketio.emit("emergency_status_updated", event_payload, room=f"ambulance_{emergency.ambulance_id}")
 
-        # Bug 2: Notify about bed count change if completed
         if new_status == "completed" and emergency.hospital:
-            hospital = emergency.hospital
+            hospital     = emergency.hospital
             availability = hospital.availability
             if availability:
                 bed_payload = {
-                    "hospital_id": hospital.hospital_id,
-                    "hospital_name": hospital.name,
+                    "hospital_id":    hospital.hospital_id,
+                    "hospital_name":  hospital.name,
                     "available_beds": availability.available_beds,
-                    "status": "GREEN" if availability.available_beds > 0 else "RED"
+                    "status":         "GREEN" if availability.available_beds > 0 else "RED"
                 }
                 socketio.emit("availability_updated", bed_payload, room="admin")
                 socketio.emit("availability_updated", bed_payload, room=f"hospital_{hospital.hospital_id}")
@@ -209,9 +193,9 @@ def update_emergency_status(emergency_id):
         return success_response(
             message="Emergency status updated successfully",
             data={
-                "emergency_id": emergency_id,
+                "emergency_id":    emergency_id,
                 "previous_status": previous_status,
-                "new_status": new_status,
+                "new_status":      new_status,
             }
         )
 
@@ -232,7 +216,6 @@ def acknowledge_emergency(emergency_id):
         if not emergency:
             return error_response("Emergency not found", 404)
 
-        # Hospital can only acknowledge emergencies assigned to them
         user = g.current_user
         if user["role"] == "hospital":
             if emergency.hospital_id != user.get("entity_id"):
@@ -244,15 +227,13 @@ def acknowledge_emergency(emergency_id):
         emergency.acknowledged = True
         db.session.commit()
 
-        # 🔥 WebSocket: notify ambulance + admin
         payload = {
             "emergency_id": emergency_id,
-            "hospital_id": emergency.hospital_id,
+            "hospital_id":  emergency.hospital_id,
             "hospital_name": emergency.hospital.name if emergency.hospital else None,
         }
         if emergency.ambulance_id:
-            socketio.emit("emergency_acknowledged", payload,
-                          room=f"ambulance_{emergency.ambulance_id}")
+            socketio.emit("emergency_acknowledged", payload, room=f"ambulance_{emergency.ambulance_id}")
         socketio.emit("emergency_acknowledged", payload, room="admin")
 
         return success_response(
@@ -272,5 +253,4 @@ def acknowledge_emergency(emergency_id):
 @token_required
 @roles_required("admin", "dispatcher")
 def patch_emergency_status(emergency_id):
-    """Legacy PATCH endpoint for admin/dispatcher status overrides."""
     return update_emergency_status(emergency_id)
