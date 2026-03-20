@@ -8,11 +8,11 @@ class EmergencyRequest(db.Model):
     emergency_id = db.Column(db.Integer, primary_key=True)
 
     # Patient / accident info
-    patient_name        = db.Column(db.String(100), nullable=True)
+    patient_name         = db.Column(db.String(100), nullable=True)
     accident_description = db.Column(db.Text, nullable=True)
-    latitude            = db.Column(db.Float, nullable=False)
-    longitude           = db.Column(db.Float, nullable=False)
-    emergency_type      = db.Column(db.String(100), nullable=False)
+    latitude             = db.Column(db.Float, nullable=False)
+    longitude            = db.Column(db.Float, nullable=False)
+    emergency_type       = db.Column(db.String(100), nullable=False)
 
     # Severity
     severity = db.Column(
@@ -36,7 +36,7 @@ class EmergencyRequest(db.Model):
     # Whether the receiving hospital has acknowledged the incoming emergency
     acknowledged = db.Column(db.Boolean, default=False, nullable=False)
 
-    hospital_id  = db.Column(db.Integer, db.ForeignKey("hospital.hospital_id"),  index=True)
+    hospital_id  = db.Column(db.Integer, db.ForeignKey("hospital.hospital_id"),    index=True)
     ambulance_id = db.Column(db.Integer, db.ForeignKey("ambulances.ambulance_id"), index=True)
 
     created_at   = db.Column(db.DateTime, default=datetime.utcnow, index=True)
@@ -69,26 +69,26 @@ class EmergencyRequest(db.Model):
                 "ambulance_id":   self.ambulance.ambulance_id,
                 "vehicle_number": self.ambulance.vehicle_number,
                 "driver_name":    self.ambulance.driver_name,
-                # ✅ Fix: include live coordinates so LiveMap can draw road route
+                # ✅ Fix: added so LiveMap can draw road route from ambulance → emergency
                 "latitude":       self.ambulance.latitude,
                 "longitude":      self.ambulance.longitude,
             }
 
         return {
-            "emergency_id":        self.emergency_id,
-            "patient_name":        self.patient_name,
-            "accident_description": self.accident_description,
-            "latitude":            self.latitude,
-            "longitude":           self.longitude,
-            "emergency_type":      self.emergency_type,
-            "severity":            self.severity,
-            "status":              self.status,
-            "acknowledged":        self.acknowledged,
-            "hospital_id":         self.hospital_id,
-            "ambulance_id":        self.ambulance_id,
-            "hospital":            hospital_info,
-            "ambulance":           ambulance_info,
-            "created_at":          self.created_at.isoformat() if self.created_at else None,
-            "sla_deadline":        self.sla_deadline.isoformat() if self.sla_deadline else None,
-            "is_overdue":          self.is_overdue(),
+            "emergency_id":          self.emergency_id,
+            "patient_name":          self.patient_name,
+            "accident_description":  self.accident_description,
+            "latitude":              self.latitude,
+            "longitude":             self.longitude,
+            "emergency_type":        self.emergency_type,
+            "severity":              self.severity,
+            "status":                self.status,
+            "acknowledged":          self.acknowledged,
+            "hospital_id":           self.hospital_id,
+            "ambulance_id":          self.ambulance_id,
+            "hospital":              hospital_info,
+            "ambulance":             ambulance_info,
+            "created_at":            self.created_at.isoformat() if self.created_at else None,
+            "sla_deadline":          self.sla_deadline.isoformat() if self.sla_deadline else None,
+            "is_overdue":            self.is_overdue(),
         }
