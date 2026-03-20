@@ -35,6 +35,9 @@ export interface BackendEmergency {
     ambulance_id: number;
     vehicle_number: string;
     driver_name: string;
+    // ✅ Fix: added so LiveMap can draw ambulance → scene route
+    latitude: number | null;
+    longitude: number | null;
   } | null;
   created_at: string | null;
   sla_deadline: string | null;
@@ -99,11 +102,8 @@ export interface SlaBreachEvent {
 }
 
 interface AppState {
-  // Identity
   currentUser: CurrentUser | null;
   activeRole: 'admin' | 'hospital' | 'ambulance';
-
-  // Data
   emergencies: BackendEmergency[];
   hospitals: BackendHospital[];
   ambulances: BackendAmbulance[];
@@ -111,12 +111,9 @@ interface AppState {
   adminUsers: AdminUser[];
   slaBreaches: SlaBreachEvent[];
 
-  // Actions — identity
   setCurrentUser: (u: CurrentUser | null) => void;
   setActiveRole: (r: 'admin' | 'hospital' | 'ambulance') => void;
   fetchMe: () => Promise<CurrentUser | null>;
-
-  // Actions — data fetching
   fetchEmergencies: () => Promise<void>;
   fetchHospitals: () => Promise<void>;
   fetchAmbulances: () => Promise<void>;
@@ -125,8 +122,6 @@ interface AppState {
   fetchAdminUsers: () => Promise<void>;
   fetchMyHospital: () => Promise<BackendHospital | null>;
   fetchMyAmbulance: () => Promise<BackendAmbulance | null>;
-
-  // Actions — ambulance
   submitEmergency: (payload: {
     accident_description: string;
     emergency_type: string;
@@ -136,16 +131,10 @@ interface AppState {
   }) => Promise<BackendEmergency>;
   updateEmergencyStatus: (emergencyId: number, status: string) => Promise<void>;
   updateAmbulanceLocation: (latitude: number, longitude: number) => Promise<void>;
-
-  // Actions — hospital
   acknowledgeEmergency: (emergencyId: number) => Promise<void>;
   updateBeds: (hospitalId: number, beds: number) => Promise<void>;
-
-  // Actions — admin
   createUser: (payload: { name: string; email: string; password: string; role: string; entity_id?: number }) => Promise<void>;
   deactivateUser: (userId: number) => Promise<void>;
-
-  // Actions — auth
   logout: () => void;
 }
 
@@ -161,7 +150,6 @@ export const useStore = create<AppState>((set, get) => ({
   adminUsers: [],
   slaBreaches: [],
 
-  // ── Identity ────────────────────────────────────────────────────────────
   setCurrentUser: (u) => set({ currentUser: u }),
   setActiveRole: (r) => set({ activeRole: r }),
 
@@ -176,7 +164,6 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  // ── Data Fetching ────────────────────────────────────────────────────────
   fetchEmergencies: async () => {
     try {
       const res = await api.get<{ data: BackendEmergency[] }>('/api/v1/emergency/');
@@ -247,7 +234,6 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  // ── Ambulance Actions ────────────────────────────────────────────────────
   submitEmergency: async (payload) => {
     const res = await api.post<{ data: BackendEmergency }>('/api/v1/emergency/', payload);
     const newEmergency = res.data;
@@ -272,7 +258,6 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  // ── Hospital Actions ─────────────────────────────────────────────────────
   acknowledgeEmergency: async (emergencyId) => {
     await api.post(`/api/v1/emergency/${emergencyId}/acknowledge`, {});
     set(s => ({
@@ -293,7 +278,6 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
-  // ── Admin Actions ────────────────────────────────────────────────────────
   createUser: async (payload) => {
     await api.post('/api/v1/admin/users', payload);
     get().fetchAdminUsers();
@@ -304,7 +288,6 @@ export const useStore = create<AppState>((set, get) => ({
     get().fetchAdminUsers();
   },
 
-  // —— Auth Actions —————————————————————————————————————
   logout: () => {
     localStorage.removeItem('aes_auth_token');
     set({ currentUser: null });

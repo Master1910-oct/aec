@@ -48,42 +48,30 @@ export default function HospitalDashboard() {
   const [bedsUpdating, setBedsUpdating] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'resolved'>('active');
 
-  // For Admin and Ambulance, allow selecting a hospital to view
   const { hospitals, fetchHospitals } = useStore();
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
 
   const effectiveHospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
   const isReadOnly = currentUser?.role === 'ambulance' || (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveHospitalId);
 
-  // We split available_beds into 3 visual categories (70% General, 20% ICU, 10% ER)
   const totalBeds = hospital?.available_beds ?? 0;
   const generalBeds = Math.round(totalBeds * 0.7);
   const icuBeds = Math.round(totalBeds * 0.2);
   const erBeds = Math.round(totalBeds * 0.1);
 
   const loadData = async () => {
-    // Admins and Ambulances need to see all hospitals to pick from
     if (currentUser?.role !== 'hospital' && hospitals.length === 0) {
       await fetchHospitals();
     }
-    
-    // Determine which hospital ID to fetch data for
     const hospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
-    
-    if (!hospitalId) {
-      setLoading(false);
-      return;
-    }
-    
+    if (!hospitalId) { setLoading(false); return; }
+
     setLoading(true);
     try {
-      // If we are a hospital user, fetch our own data specificially
-      const hospData = currentUser?.role === 'hospital' 
+      const hospData = currentUser?.role === 'hospital'
         ? await fetchMyHospital()
         : hospitals.find(h => h.hospital_id === hospitalId) ?? null;
-        
       const emergData = await fetchHospitalEmergencies(hospitalId);
-      
       setHospital(hospData);
       setActiveEmergencies(emergData.active ?? []);
       setResolvedEmergencies(emergData.resolved ?? []);
@@ -130,7 +118,6 @@ export default function HospitalDashboard() {
 
   const isAvailable = hospital?.status === 'GREEN';
 
-  // If no hospital is selected and we are not a hospital user
   if (!effectiveHospitalId && currentUser?.role !== 'hospital') {
     return (
       <div className="space-y-4 animate-slide-in-up">
@@ -139,7 +126,7 @@ export default function HospitalDashboard() {
             <h2 className="text-sm font-bold font-mono uppercase tracking-wider">Select Hospital</h2>
             <p className="text-xs text-muted-foreground mt-1">Choose a hospital to view its dashboard.</p>
           </div>
-          <select 
+          <select
             className="h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary min-w-[200px]"
             onChange={(e) => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
@@ -187,7 +174,7 @@ export default function HospitalDashboard() {
       {currentUser?.role !== 'hospital' && (
         <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Viewing:</span>
-          <select 
+          <select
             className="h-8 px-2 rounded-md bg-input border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             onChange={(e) => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
@@ -200,7 +187,6 @@ export default function HospitalDashboard() {
 
       {/* ── Capacity Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* General Beds */}
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
@@ -223,7 +209,6 @@ export default function HospitalDashboard() {
           </div>
         </div>
 
-        {/* ICU Beds */}
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
@@ -240,7 +225,6 @@ export default function HospitalDashboard() {
           </div>
         </div>
 
-        {/* Emergency Room */}
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
@@ -251,7 +235,7 @@ export default function HospitalDashboard() {
           <p className="text-[10px] text-muted-foreground font-mono mt-0.5">of {Math.round(erBeds * 10)} occupied</p>
           <CapacityBar value={erBeds} max={Math.round(erBeds * 10)} color="#3b82f6" />
           <p className="text-center text-[10px] text-muted-foreground font-mono mt-2">
-            {erBeds > 0 ? `${Math.round(erBeds /  (erBeds * 10) * 100 * 10)}% Capacity` : '0% Capacity'}
+            {erBeds > 0 ? `${Math.round(erBeds / (erBeds * 10) * 100 * 10)}% Capacity` : '0% Capacity'}
           </p>
         </div>
       </div>
@@ -293,13 +277,13 @@ export default function HospitalDashboard() {
                       {e.ambulance && (
                         <span className="flex items-center gap-1">
                           🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
-                          {hospital?.latitude && hospital?.longitude && e.ambulance_id && ambulances.find(a => a.ambulance_id === e.ambulance_id) && (
+                          {hospital?.latitude && hospital?.longitude && e.ambulance?.latitude && e.ambulance?.longitude && (
                             <span className="text-cyan-400 ml-1">
                               · {haversineKm(
                                 hospital.latitude,
                                 hospital.longitude,
-                                ambulances.find(a => a.ambulance_id === e.ambulance_id)!.latitude,
-                                ambulances.find(a => a.ambulance_id === e.ambulance_id)!.longitude
+                                e.ambulance.latitude,
+                                e.ambulance.longitude
                               ).toFixed(1)} km
                             </span>
                           )}
@@ -357,14 +341,25 @@ export default function HospitalDashboard() {
         </div>
       )}
 
-      {/* ── Live Map (Hospitals & Incoming Ambulances) ── */}
+      {/* ── Live Tracking Map ── */}
       {hospital && (
         <div className="rounded-lg border border-border overflow-hidden bg-card mt-4">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/20">
             <span className="text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2">
               <MapPin className="h-4 w-4 text-primary" /> Tracking Map
             </span>
+            {/* Legend */}
+            <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-1 rounded" style={{ background: '#f97316' }} /> 🚑→🚨
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-1 rounded" style={{ background: '#22c55e' }} /> 🚨→🏥
+              </span>
+            </div>
           </div>
+
+          {/* ✅ Fixed: ambulance coords now come from emergency.ambulance object directly */}
           <LiveMap
             hospitals={[hospital]}
             emergencies={activeEmergencies.map(e => ({
@@ -375,18 +370,22 @@ export default function HospitalDashboard() {
               longitude: e.longitude,
               status: e.status,
               ambulance_id: e.ambulance_id,
+              ambulance_latitude: e.ambulance?.latitude ?? null,
+              ambulance_longitude: e.ambulance?.longitude ?? null,
+              hospital_latitude: e.hospital?.latitude ?? hospital.latitude,
+              hospital_longitude: e.hospital?.longitude ?? hospital.longitude,
             }))}
-            ambulances={ambulances.filter(a => 
-              activeEmergencies.some(e => e.ambulance_id === a.ambulance_id)
-            ).map(a => ({
-              ambulance_id: a.ambulance_id,
-              vehicle_number: a.vehicle_number,
-              driver_name: a.driver_name,
-              latitude: a.latitude,
-              longitude: a.longitude,
-              status: a.status,
-            }))}
-            className="w-full h-[350px]"
+            ambulances={activeEmergencies
+              .filter(e => e.ambulance?.latitude && e.ambulance?.longitude)
+              .map(e => ({
+                ambulance_id: e.ambulance!.ambulance_id,
+                vehicle_number: e.ambulance!.vehicle_number,
+                driver_name: e.ambulance!.driver_name,
+                latitude: e.ambulance!.latitude!,
+                longitude: e.ambulance!.longitude!,
+                status: 'ON_CALL' as const,
+              }))}
+            className="w-full h-[380px]"
           />
         </div>
       )}
