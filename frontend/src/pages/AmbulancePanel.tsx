@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStore, BackendEmergency } from '@/store/useStore';
 import {
   MapPin, Radio, AlertTriangle, CheckCircle2, Navigation,
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { haversineDistance, estimateEta } from '@/lib/utils';
 import LiveMap from '@/components/map/LiveMap';
 
 // ✅ Expanded emergency types
@@ -81,6 +82,25 @@ export default function AmbulancePanel() {
   const myActiveEmergency = submitted ?? emergencies.find(
     e => e.ambulance_id === effectiveAmbulanceId && !['completed', 'cancelled'].includes(e.status)
   ) ?? null;
+
+  // ── GAP 2: Real-time distance & ETA ──────────────────────────────────────
+  const { distanceKm, etaMin } = useMemo(() => {
+    const ambulanceLat = parseFloat(lat);
+    const ambulanceLon = parseFloat(lon);
+    if (
+      !myActiveEmergency ||
+      isNaN(ambulanceLat) || isNaN(ambulanceLon) ||
+      !myActiveEmergency.latitude || !myActiveEmergency.longitude
+    ) {
+      return { distanceKm: null, etaMin: null };
+    }
+    const dist = haversineDistance(
+      ambulanceLat, ambulanceLon,
+      myActiveEmergency.latitude, myActiveEmergency.longitude
+    );
+    const eta = estimateEta(dist, myActiveEmergency.severity);
+    return { distanceKm: dist, etaMin: eta };
+  }, [lat, lon, myActiveEmergency]);
 
   const detectGPS = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -216,7 +236,7 @@ export default function AmbulancePanel() {
       ) : (
         <>
           {/* ── Top Info Cards ── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <InfoCard label="Ambulance Identity">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-bold text-cyan-400">
@@ -271,7 +291,9 @@ export default function AmbulancePanel() {
                 {myActiveEmergency && (
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground font-mono">ETA</span>
-                    <span className="text-xs font-mono text-cyan-400">—</span>
+                    <span className="text-xs font-mono text-cyan-400">
+                      {etaMin !== null ? `${etaMin} min` : '— min'}
+                    </span>
                   </div>
                 )}
               </div>
@@ -286,18 +308,22 @@ export default function AmbulancePanel() {
                 <SeverityBadge severity={myActiveEmergency.severity} />
               </div>
               <div className="p-4 space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">Assignment</p>
                     <p className="font-mono font-bold text-sm text-cyan-400">ASG-{String(myActiveEmergency.emergency_id).padStart(3, '0')}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">ETA</p>
-                    <p className="font-mono font-bold text-sm text-cyan-400">— min</p>
+                    <p className="font-mono font-bold text-sm text-cyan-400">
+                      {etaMin !== null ? `${etaMin} min` : '— min'}
+                    </p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">Distance</p>
-                    <p className="font-mono font-bold text-sm">— km</p>
+                    <p className="font-mono font-bold text-sm">
+                      {distanceKm !== null ? `${distanceKm.toFixed(1)} km` : '— km'}
+                    </p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">Status</p>
@@ -310,14 +336,14 @@ export default function AmbulancePanel() {
 
                 <div className="rounded-md border border-border p-3 bg-secondary/10">
                   <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-3">Patient Information</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                     <div>
                       <p className="text-[10px] text-muted-foreground font-mono mb-1">Condition</p>
                       <p className="font-medium">{TYPE_LABELS[myActiveEmergency.emergency_type] ?? myActiveEmergency.emergency_type}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-muted-foreground font-mono mb-1">Description</p>
-                      <p className="text-xs text-muted-foreground line-clamp-2">{myActiveEmergency.accident_description || '—'}</p>
+                      <p className="text-xs text-muted-foreground break-words line-clamp-3">{myActiveEmergency.accident_description || '—'}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-muted-foreground font-mono mb-1">Severity</p>
@@ -351,7 +377,7 @@ export default function AmbulancePanel() {
                 {!isReadOnly && !['completed', 'cancelled', 'escalated'].includes(myActiveEmergency.status) && getNextStatus(myActiveEmergency.status) && (
                   <div className="pt-2 border-t border-border">
                     <Button onClick={() => handleStatusUpdate(getNextStatus(myActiveEmergency.status)!)} disabled={statusUpdating}
-                      className="bg-primary hover:bg-primary/80 font-mono tracking-wider">
+                      className="w-full min-h-[48px] bg-primary hover:bg-primary/80 font-mono tracking-wider">
                       {statusUpdating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                       {getStatusLabel(myActiveEmergency.status)}
                     </Button>
@@ -379,7 +405,7 @@ export default function AmbulancePanel() {
                   GPS Lock
                 </span>
               </div>
-              <LiveMap ambulances={mapAmbulances} hospitals={mapHospitals} emergencies={mapEmergencies} className="w-full h-[320px]" />
+              <LiveMap ambulances={mapAmbulances} hospitals={mapHospitals} emergencies={mapEmergencies} className="w-full h-[260px] sm:h-[320px]" />
               <div className="flex items-center gap-4 px-4 py-2 border-t border-border bg-secondary/10 text-[10px] font-mono text-muted-foreground">
                 <span>🚑 Your Location</span>
                 <span>🚨 Emergency Scene</span>
@@ -432,11 +458,11 @@ export default function AmbulancePanel() {
                       {gpsLoading ? 'Detecting...' : 'Auto-detect GPS'}
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <input type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} placeholder="Latitude"
-                      className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
-                    <input type="number" step="any" value={lon} onChange={e => setLon(e.target.value)} placeholder="Longitude"
-                      className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input type="number" step="any" inputMode="decimal" value={lat} onChange={e => setLat(e.target.value)} placeholder="Latitude"
+                      className="w-full h-12 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
+                    <input type="number" step="any" inputMode="decimal" value={lon} onChange={e => setLon(e.target.value)} placeholder="Longitude"
+                      className="w-full h-12 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
                   </div>
                   {lat && lon && (
                     <p className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">

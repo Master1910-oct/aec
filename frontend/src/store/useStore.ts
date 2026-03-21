@@ -109,9 +109,13 @@ interface AppState {
   stats: SystemStats | null;
   adminUsers: AdminUser[];
   slaBreaches: SlaBreachEvent[];
+  // GAP 1 — socket connection status
+  isSocketConnected: boolean;
 
   setCurrentUser: (u: CurrentUser | null) => void;
   setActiveRole: (r: 'admin' | 'hospital' | 'ambulance') => void;
+  // GAP 1
+  setSocketConnected: (v: boolean) => void;
   fetchMe: () => Promise<CurrentUser | null>;
   fetchEmergencies: () => Promise<void>;
   fetchHospitals: () => Promise<void>;
@@ -132,10 +136,12 @@ interface AppState {
   updateAmbulanceLocation: (latitude: number, longitude: number) => Promise<void>;
   acknowledgeEmergency: (emergencyId: number) => Promise<void>;
   updateBeds: (hospitalId: number, beds: number) => Promise<void>;
-  // ✅ New action
   updateSpecialities: (hospitalId: number, specialities: string[]) => Promise<void>;
   createUser: (payload: { name: string; email: string; password: string; role: string; entity_id?: number }) => Promise<void>;
   deactivateUser: (userId: number) => Promise<void>;
+  // GAP 4 — SLA breach persistence
+  addSlaBreach: (breach: SlaBreachEvent) => void;
+  dismissSlaBreach: (emergencyId: number) => void;
   logout: () => void;
 }
 
@@ -150,9 +156,11 @@ export const useStore = create<AppState>((set, get) => ({
   stats: null,
   adminUsers: [],
   slaBreaches: [],
+  isSocketConnected: true,
 
   setCurrentUser: (u) => set({ currentUser: u }),
   setActiveRole: (r) => set({ activeRole: r }),
+  setSocketConnected: (v) => set({ isSocketConnected: v }),
 
   fetchMe: async () => {
     try {
@@ -281,8 +289,21 @@ export const useStore = create<AppState>((set, get) => ({
     get().fetchAdminUsers();
   },
 
+  // GAP 4 — SLA breach persistence
+  addSlaBreach: (breach) =>
+    set(s => ({
+      slaBreaches: s.slaBreaches.some(b => b.emergency_id === breach.emergency_id)
+        ? s.slaBreaches           // deduplicate: don't add twice for same emergency
+        : [breach, ...s.slaBreaches],
+    })),
+
+  dismissSlaBreach: (emergencyId) =>
+    set(s => ({
+      slaBreaches: s.slaBreaches.filter(b => b.emergency_id !== emergencyId),
+    })),
+
   logout: () => {
     localStorage.removeItem('aes_auth_token');
-    set({ currentUser: null });
+    set({ currentUser: null, slaBreaches: [] });
   },
 }));

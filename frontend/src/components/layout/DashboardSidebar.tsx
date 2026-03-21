@@ -9,6 +9,7 @@ import {
   Activity,
   Shield,
   LogOut,
+  WifiOff,
 } from 'lucide-react';
 
 // Every nav item declares which roles can see it
@@ -19,7 +20,7 @@ const NAV_ITEMS = [
 ];
 
 export function DashboardSidebar() {
-  const { stats, currentUser, logout } = useStore();
+  const { stats, currentUser, isSocketConnected, logout } = useStore();
   const navigate = useNavigate();
 
   const role = currentUser?.role ?? 'ambulance';
@@ -49,11 +50,20 @@ export function DashboardSidebar() {
       {/* Live Status */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-2 mb-3">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
-          </span>
-          <span className="text-[10px] font-mono tracking-wider text-success uppercase">System Online</span>
+          {isSocketConnected ? (
+            <>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              </span>
+              <span className="text-[10px] font-mono tracking-wider text-success uppercase">System Online</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-3.5 w-3.5 text-red-400 shrink-0" />
+              <span className="text-[10px] font-mono tracking-wider text-red-400 uppercase animate-pulse">Reconnecting...</span>
+            </>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-2 text-center">
           <div className="bg-secondary/50 rounded p-2">

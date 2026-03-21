@@ -1,12 +1,12 @@
 import { Outlet } from 'react-router-dom';
 import { DashboardSidebar } from './DashboardSidebar';
-import { Clock } from 'lucide-react';
+import { Clock, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useSocketEvents } from '@/hooks/useSocketEvents';
+import { useStore } from '@/store/useStore';
 
 export function DashboardLayout() {
-  useSocketEvents();
   const [time, setTime] = useState(new Date());
+  const isSocketConnected = useStore(s => s.isSocketConnected);
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
@@ -17,6 +17,15 @@ export function DashboardLayout() {
     <div className="flex h-screen w-full overflow-hidden">
       <DashboardSidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
+
+        {/* ── GAP 1: Connection Lost Banner ─────────────────────────────── */}
+        {!isSocketConnected && (
+          <div className="flex items-center justify-center gap-2 bg-red-500/90 text-white text-xs font-mono tracking-wider py-1.5 px-4 shrink-0 animate-pulse">
+            <WifiOff className="h-3.5 w-3.5 shrink-0" />
+            <span>CONNECTION LOST — RECONNECTING TO EMERGENCY NETWORK...</span>
+          </div>
+        )}
+
         {/* Top bar */}
         <header className="h-10 border-b border-border bg-card/50 flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-2">
@@ -36,6 +45,7 @@ export function DashboardLayout() {
             </span>
           </div>
         </header>
+
         {/* Main content */}
         <main className="flex-1 overflow-auto p-4">
           <Outlet />
