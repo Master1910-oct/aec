@@ -11,4 +11,5 @@ backend/venv/
 backend/.env
 
 # Ignore specific backend file
-backend/token_generator.py
+backend/token_generator.pybackend/scripts/hospital_credentials.csv 
+backend/scripts/ambulance_credentials.csv 
