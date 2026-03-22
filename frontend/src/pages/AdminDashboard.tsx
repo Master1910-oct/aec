@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 import {
   Ambulance, Building2, AlertTriangle, CheckCircle2,
-  Loader2, UserPlus, Ban, RefreshCw, Clock, X, Timer
+  Loader2, RefreshCw, Clock, MapPin, Activity, X, Truck
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+
 import { api } from '@/lib/api';
 import LiveMap from '@/components/map/LiveMap';
 import {
@@ -13,81 +12,13 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer
 } from 'recharts';
 
-// ─── Mini components ──────────────────────────────────────────────────────────
-
-function SeverityBadge({ severity }: { severity: string }) {
-  const map: Record<string, string> = {
-    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    high: 'bg-orange-500/20 text-orange-400 border border-orange-500/40',
-    medium: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40',
-    low: 'bg-green-500/20 text-green-400 border border-green-500/40',
-  };
-  return <span className={cn('px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider', map[severity] ?? 'bg-muted text-muted-foreground')}>{severity}</span>;
-}
-
-function StatusChip({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    allocated: 'bg-blue-500/20 text-blue-400',
-    en_route: 'bg-purple-500/20 text-purple-400',
-    arrived: 'bg-cyan-500/20 text-cyan-400',
-    completed: 'bg-green-500/20 text-green-400',
-    cancelled: 'bg-muted text-muted-foreground',
-    escalated: 'bg-red-500/20 text-red-400',
-    pending: 'bg-yellow-500/20 text-yellow-400',
-  };
-  return <span className={cn('px-2 py-0.5 rounded text-[10px] font-mono uppercase', map[status] ?? 'text-muted-foreground')}>{status.replace('_', ' ')}</span>;
-}
-
-function AmbulanceStatusChip({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    AVAILABLE: 'bg-green-500/20 text-green-400 border border-green-500/40',
-    ON_CALL: 'bg-orange-500/20 text-orange-400 border border-orange-500/40',
-    MAINTENANCE: 'bg-gray-500/20 text-gray-400 border border-gray-500/40',
-  };
-  return <span className={cn('px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider', map[status] ?? 'bg-muted text-muted-foreground')}>{status.replace('_', ' ')}</span>;
-}
-
-// ── SLA Countdown Timer ───────────────────────────────────────────────────────
-function SlaCountdown({ sla_deadline, status }: { sla_deadline: string | null; status: string }) {
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-
-  const computeSecondsLeft = useCallback(() => {
-    if (!sla_deadline) return null;
-    return Math.floor((new Date(sla_deadline).getTime() - Date.now()) / 1000);
-  }, [sla_deadline]);
-
-  useEffect(() => {
-    if (['completed', 'cancelled'].includes(status) || !sla_deadline) return;
-    setSecondsLeft(computeSecondsLeft());
-    const id = setInterval(() => setSecondsLeft(computeSecondsLeft()), 1000);
-    return () => clearInterval(id);
-  }, [sla_deadline, status, computeSecondsLeft]);
-
-  if (['completed', 'cancelled'].includes(status) || !sla_deadline) return null;
-  if (secondsLeft === null) return null;
-
-  if (secondsLeft <= 0) {
-    return (
-      <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse">
-        <Timer className="h-3 w-3" /> BREACHED
-      </span>
-    );
-  }
-
-  const mins = Math.floor(secondsLeft / 60);
-  const secs = secondsLeft % 60;
-  const display = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  const colorClass =
-    mins >= 5 ? 'text-green-400 border-green-500/40 bg-green-500/10'
-      : mins >= 2 ? 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10'
-        : 'text-red-400 border-red-500/40 bg-red-500/10 animate-pulse';
-
-  return (
-    <span className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border', colorClass)}>
-      <Timer className="h-3 w-3" />{display}
-    </span>
-  );
-}
+// Shared components
+import { SeverityBadge } from '@/components/shared/SeverityBadge';
+import { StatusBadge } from '@/components/shared/StatusBadge';
+import { StatCard } from '@/components/shared/StatCard';
+import { AlertBanner } from '@/components/shared/AlertBanner';
+import { SLACountdown } from '@/components/shared/SLACountdown';
+import { EmptyState } from '@/components/shared/EmptyState';
 
 // ─── Static chart data ────────────────────────────────────────────────────────
 const RESPONSE_DATA = [
@@ -100,7 +31,6 @@ const WEEKLY_DATA = [
   { d: 'Thu', c: 27, h: 18 }, { d: 'Fri', c: 23, h: 14 }, { d: 'Sat', c: 16, h: 10 }, { d: 'Sun', c: 12, h: 7 },
 ];
 
-// ✅ All 14 specialities
 const ALL_SPECIALITIES = [
   'trauma', 'cardiac', 'respiratory', 'neurological',
   'orthopaedic', 'maternity', 'ophthalmology', 'ent',
@@ -137,23 +67,23 @@ export default function AdminDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeSection, setActiveSection] = useState<'overview' | 'fleet' | 'users' | 'hospitals' | 'dispatch'>('overview');
 
-  // ── User creation ──────────────────────────────────────────────────────────
+  // ── User creation
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'ambulance', entity_id: '' });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
-  // ── Password reset ─────────────────────────────────────────────────────────
+  // ── Password reset
   const [resettingPassword, setResettingPassword] = useState<number | null>(null);
   const [resetResult, setResetResult] = useState<{ userId: number; password: string; name: string } | null>(null);
 
-  // ── Speciality editor ──────────────────────────────────────────────────────
+  // ── Speciality editor
   const [editingHospitalId, setEditingHospitalId] = useState<number | null>(null);
   const [editingSpecs, setEditingSpecs] = useState<string[]>([]);
   const [savingSpecs, setSavingSpecs] = useState(false);
   const [specError, setSpecError] = useState('');
 
-  // ── 108 Dispatch ───────────────────────────────────────────────────────────
+  // ── 108 Dispatch
   const [dispatchForm, setDispatchForm] = useState({
     patient_name: '',
     description: '',
@@ -168,12 +98,12 @@ export default function AdminDashboard() {
   const [dispatchGpsLoading, setDispatchGpsLoading] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([fetchDashboardStats(), fetchEmergencies(), fetchHospitals(), fetchAmbulances(), fetchAdminUsers()]);
     setLoading(false);
     setRefreshing(false);
-  };
+  }, [fetchDashboardStats, fetchEmergencies, fetchHospitals, fetchAmbulances, fetchAdminUsers]);
 
   useEffect(() => {
     loadAll();
@@ -181,10 +111,9 @@ export default function AdminDashboard() {
       fetchDashboardStats(); fetchEmergencies(); fetchAmbulances();
     }, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadAll, fetchDashboardStats, fetchEmergencies, fetchAmbulances]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError('');
@@ -195,7 +124,8 @@ export default function AdminDashboard() {
     try {
       await createUser({
         name: newUser.name, email: newUser.email, password: newUser.password,
-        role: newUser.role, entity_id: newUser.entity_id ? parseInt(newUser.entity_id) : undefined,
+        role: newUser.role as 'admin' | 'hospital' | 'ambulance',
+        entity_id: newUser.entity_id ? parseInt(newUser.entity_id) : undefined,
       });
       setShowCreateUser(false);
       setNewUser({ name: '', email: '', password: '', role: 'ambulance', entity_id: '' });
@@ -275,6 +205,7 @@ export default function AdminDashboard() {
       });
       setDispatchResult(res.data);
       setDispatchForm({ patient_name: '', description: '', emergency_type: 'trauma', severity: 'high', latitude: '', longitude: '' });
+      await loadAll();
     } catch (err: any) {
       setDispatchError(err.response?.data?.message || err.message || 'Dispatch failed');
     } finally {
@@ -283,125 +214,116 @@ export default function AdminDashboard() {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+    return (
+      <div className="flex items-center justify-center h-full min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--critical)' }} />
+      </div>
+    );
   }
 
-  const criticalEmergencies = emergencies.filter(e => e.severity === 'critical' && !['completed', 'cancelled'].includes(e.status));
+  const criticalCount = emergencies.filter(e => e.severity === 'critical' && !['completed', 'cancelled'].includes(e.status)).length;
   const activeEmergencies = emergencies.filter(e => !['completed', 'cancelled'].includes(e.status));
+  const activeAmbulances = ambulances.filter(a => a.status === 'ON_CALL').length;
+  const readyHospitals = hospitals.filter(h => (h.available_beds ?? 0) > 0).length;
 
   const severityData = [
-    { name: 'Critical', value: emergencies.filter(e => e.severity === 'critical').length, color: '#ef4444' },
-    { name: 'High', value: emergencies.filter(e => e.severity === 'high').length, color: '#f97316' },
-    { name: 'Medium', value: emergencies.filter(e => e.severity === 'medium').length, color: '#eab308' },
-    { name: 'Low', value: emergencies.filter(e => e.severity === 'low').length, color: '#22c55e' },
+    { name: 'Critical', value: emergencies.filter(e => e.severity === 'critical').length, color: 'var(--critical)' },
+    { name: 'High', value: emergencies.filter(e => e.severity === 'high').length, color: '#F59E0B' },
+    { name: 'Medium', value: emergencies.filter(e => e.severity === 'medium').length, color: 'var(--info)' },
+    { name: 'Low', value: emergencies.filter(e => e.severity === 'low').length, color: 'var(--safe)' },
   ].filter(d => d.value > 0);
 
   return (
-    <div className="space-y-4 animate-slide-in-up">
+    <div className="flex flex-col gap-5 animate-slide-in-up pb-10">
 
-      {/* ── Critical Alert Banner ── */}
-      {criticalEmergencies.length > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-3 emergency-flash">
-          <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-          <span className="text-sm font-mono font-bold text-red-400 uppercase tracking-wider">
-            {criticalEmergencies.length} Critical Assignment{criticalEmergencies.length > 1 ? 's' : ''} Active — Immediate Response Required
-          </span>
+      {/* ── Alert Banners for SLA Breaches ── */}
+      {slaBreaches.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {slaBreaches.map(breach => (
+            <AlertBanner
+              key={breach.emergency_id}
+              message={`SLA Breach on ASG-${String(breach.emergency_id).padStart(3, '0')} (${breach.emergency_type})`}
+              time={new Date(breach.received_at).toLocaleTimeString('en-IN')}
+              onDismiss={() => dismissSlaBreach(breach.emergency_id)}
+            />
+          ))}
         </div>
       )}
 
-      {/* ── Stats Bar ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: 'Active Units', icon: Ambulance, value: ambulances.filter(a => a.status === 'ON_CALL').length, sub: `of ${ambulances.length} total`, color: 'text-cyan-400' },
-          { label: 'Available Hospitals', icon: Building2, value: hospitals.filter(h => (h.available_beds ?? 0) > 0).length, sub: `of ${hospitals.length} total`, color: 'text-blue-400' },
-          { label: 'Avg Response', icon: Clock, value: '—', sub: 'Target < 8 min', color: 'text-yellow-400' },
-          { label: 'Critical Alerts', icon: AlertTriangle, value: criticalEmergencies.length + slaBreaches.length, sub: criticalEmergencies.length > 0 ? 'Requires attention' : 'All clear', color: criticalEmergencies.length > 0 ? 'text-red-400' : 'text-muted-foreground' },
-        ].map(card => (
-          <div key={card.label} className="rounded-lg border border-border bg-card p-4">
-            <div className="flex items-start justify-between mb-3">
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{card.label}</span>
-              <card.icon className={cn('h-4 w-4 shrink-0', card.color)} />
-            </div>
-            <p className={cn('text-3xl font-bold font-mono', card.color)}>{card.value}</p>
-            <p className="text-[10px] text-muted-foreground font-mono mt-1">{card.sub}</p>
-          </div>
-        ))}
+      {/* ── Stats Row ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          label="Active Emergencies"
+          value={activeEmergencies.length}
+          icon={AlertTriangle}
+          sub={criticalCount > 0 ? `${criticalCount} critical` : 'All clear'}
+          accentColor={criticalCount > 0 ? 'red' : 'blue'}
+        />
+        <StatCard
+          label="Ambulances Deployed"
+          value={activeAmbulances}
+          icon={Ambulance}
+          sub={`of ${ambulances.length} total units`}
+          accentColor="amber"
+        />
+        <StatCard
+          label="Hospitals Ready"
+          value={readyHospitals}
+          icon={Building2}
+          sub={`of ${hospitals.length} network hospitals`}
+          accentColor="green"
+        />
+        <StatCard
+          label="Avg Response Time"
+          value="8.4m"
+          icon={Clock}
+          sub="Target < 10 mins"
+          accentColor="blue"
+        />
       </div>
 
-      {/* ── SLA Breach Alert Panel ── */}
-      {slaBreaches.length > 0 && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/5 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-red-500/30 bg-red-500/10">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-400" />
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-red-400">
-                SLA Breach Alerts ({slaBreaches.length})
-              </span>
-            </div>
-            <span className="text-[10px] font-mono text-muted-foreground">Click × to dismiss</span>
-          </div>
-          <div className="divide-y divide-red-500/20 max-h-48 overflow-y-auto">
-            {slaBreaches.map(breach => (
-              <div key={breach.emergency_id}
-                className={cn('flex items-start justify-between gap-3 px-4 py-2.5', breach.severity === 'critical' && 'animate-pulse')}>
-                <div className="space-y-0.5 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-mono font-bold text-red-400">ASG-{String(breach.emergency_id).padStart(3, '0')}</span>
-                    <SeverityBadge severity={breach.severity} />
-                    <span className="text-[10px] font-mono text-muted-foreground capitalize">{breach.emergency_type}</span>
-                  </div>
-                  <p className="text-[10px] font-mono text-muted-foreground">
-                    Breached at {new Date(breach.received_at).toLocaleTimeString('en-IN', { hour12: false })}
-                  </p>
-                </div>
-                <button onClick={() => dismissSlaBreach(breach.emergency_id)}
-                  className="shrink-0 text-muted-foreground hover:text-red-400 transition-colors mt-0.5" title="Dismiss">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Section Tabs ── */}
-      <div className="flex items-center gap-0.5 rounded-lg bg-secondary/50 p-1 w-fit flex-wrap">
+      <div className="flex items-center gap-1 p-1 rounded-md overflow-x-auto custom-scrollbar" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
         {(['overview', 'fleet', 'users', 'hospitals', 'dispatch'] as const).map(s => (
-          <button key={s} onClick={() => setActiveSection(s)}
-            className={cn('px-4 py-1.5 rounded-md text-xs font-mono uppercase tracking-wider transition-colors',
-              activeSection === s ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            )}>
-            {s === 'dispatch' ? '📞 Dispatch' : s}
+          <button
+            key={s}
+            onClick={() => setActiveSection(s)}
+            className="flex-shrink-0 px-4 py-2 transition-colors relative font-['Barlow_Condensed',sans-serif] font-bold tracking-widest uppercase text-xs rounded"
+            style={{
+              color: activeSection === s ? 'var(--text)' : 'var(--text-dim)',
+              background: activeSection === s ? 'var(--bg-raised)' : 'transparent',
+            }}
+          >
+            {s === 'dispatch' ? '108 Dispatch' : s}
+            {s === 'dispatch' && <div className="absolute top-2 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--critical)] animate-pulse" />}
           </button>
         ))}
-        <button onClick={loadAll} disabled={refreshing} className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground">
-          <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+        <div className="flex-1" />
+        <button
+          onClick={loadAll}
+          disabled={refreshing}
+          className="p-2 mr-1 rounded hidden md:flex hover:bg-[var(--bg-raised)] transition-colors"
+          style={{ color: 'var(--text-dim)' }}
+        >
+          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      {/* ════ OVERVIEW ════ */}
+      {/* ════ OVERVIEW SECTION ════ */}
       {activeSection === 'overview' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
             {/* Live Map */}
-            <div className="lg:col-span-3 rounded-lg border border-border overflow-hidden">
-              <div className="flex items-center justify-between bg-secondary/20 px-4 py-2.5 border-b border-border">
-                <span className="text-xs font-mono font-bold uppercase tracking-wider">Live Tracking</span>
-                <span className="flex items-center gap-1.5 text-[10px] font-mono text-green-400 uppercase">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
-                  </span>
-                  Live
+            <div className="lg:col-span-3 card p-0 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b flex items-center justify-between" style={{ background: 'var(--bg-surface)' }}>
+                <span className="section-label">Live Network Map</span>
+                <span className="badge badge-allocated gap-1" style={{ fontSize: 9 }}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--info)] animate-pulse" /> Live Tracking
                 </span>
               </div>
               {ambulances.length === 0 && hospitals.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-[380px] bg-secondary/10 text-muted-foreground font-mono">
-                  <Loader2 className="h-6 w-6 animate-spin mb-2" />
-                  No location data available
-                </div>
+                <EmptyState icon={MapPin} title="No GPS Data" message="No nodes found in the network." />
               ) : (
                 <LiveMap
                   emergencies={(emergencies ?? []).map(e => ({
@@ -419,462 +341,450 @@ export default function AdminDashboard() {
                     available_beds: h.available_beds ?? 0, latitude: h.latitude ?? null,
                     longitude: h.longitude ?? null, status: (h.available_beds ?? 0) > 0 ? 'GREEN' : 'RED',
                   }))}
-                  className="w-full h-[380px]"
+                  className="w-full h-[400px]"
                 />
               )}
             </div>
 
-            {/* Active Assignments */}
-            <div className="lg:col-span-2 rounded-lg border border-border bg-card flex flex-col overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border bg-secondary/20">
-                <span className="text-xs font-mono font-bold uppercase tracking-wider">Active Assignments</span>
+            {/* Active Assignments List */}
+            <div className="lg:col-span-2 card p-0 flex flex-col overflow-hidden max-h-[445px]">
+              <div className="px-4 py-3 border-b flex items-center justify-between" style={{ background: 'var(--bg-surface)' }}>
+                <span className="section-label">Active Emergencies ({activeEmergencies.length})</span>
               </div>
-              <div className="flex-1 overflow-y-auto divide-y divide-border">
+              <div className="flex-1 overflow-y-auto">
                 {activeEmergencies.length === 0 ? (
-                  <div className="p-8 flex flex-col items-center justify-center gap-2 text-green-400">
-                    <CheckCircle2 className="h-6 w-6" />
-                    <span className="text-xs font-mono">No active emergencies</span>
+                  <div className="h-full flex items-center justify-center">
+                    <EmptyState icon={CheckCircle2} title="No Active Emergencies" message="All operations are normal." />
                   </div>
-                ) : activeEmergencies.slice(0, 10).map(e => (
-                  <div key={e.emergency_id} className={cn('px-4 py-3 space-y-2', e.severity === 'critical' && 'border-l-2 border-red-500')}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono text-muted-foreground">ASG-{String(e.emergency_id).padStart(3, '0')}</span>
-                      <StatusChip status={e.status} />
-                    </div>
-                    <p className="text-sm font-medium capitalize">{e.emergency_type} Emergency</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <SeverityBadge severity={e.severity} />
-                      {e.ambulance && <span className="text-[10px] font-mono text-muted-foreground">🚑 {e.ambulance.vehicle_number}</span>}
-                      {e.hospital && <span className="text-[10px] font-mono text-muted-foreground">🏥 {e.hospital.name.split(' ')[0]}</span>}
-                    </div>
-                    <SlaCountdown sla_deadline={e.sla_deadline} status={e.status} />
-                  </div>
-                ))}
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 z-10">
+                      <tr>
+                        <th className="th-cell">ID & Type</th>
+                        <th className="th-cell">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeEmergencies.map(e => {
+                        const isCrit = e.severity === 'critical';
+                        return (
+                          <tr key={e.emergency_id} className={`tr-hover ${isCrit ? 'tr-critical' : ''}`}>
+                            <td className="td-cell">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, color: 'var(--text)' }}>
+                                    ASG-{String(e.emergency_id).padStart(3, '0')}
+                                  </span>
+                                  <SeverityBadge severity={e.severity} />
+                                </div>
+                                <span className="capitalize text-xs">{e.emergency_type}</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                  {e.hospital && <span className="badge badge-hospital" style={{ fontSize: 9 }}>H: {e.hospital.name.split(' ')[0]}</span>}
+                                  {e.ambulance && <span className="badge badge-ambulance" style={{ fontSize: 9 }}>A: {e.ambulance.vehicle_number}</span>}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="td-cell align-top text-right">
+                              <div className="flex flex-col items-end gap-1.5">
+                                <StatusBadge status={e.status} />
+                                <SLACountdown deadline={e.sla_deadline} status={e.status} />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Fleet Overview Table */}
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-secondary/20">
-              <span className="text-xs font-mono font-bold uppercase tracking-wider">Fleet Overview</span>
-              <span className="text-[10px] font-mono text-muted-foreground">{ambulances.length} Units</span>
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="card flex flex-col gap-3">
+              <span className="section-label">Response Time (24H)</span>
+              <div className="h-32 -ml-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={RESPONSE_DATA} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="t" tick={{ fontSize: 10, fill: 'var(--text-dim)', fontFamily: 'Barlow' }} axisLine={false} tickLine={false} />
+                    <YAxis hide domain={[4, 14]} />
+                    <Tooltip contentStyle={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)' }} itemStyle={{ color: 'var(--info)' }} />
+                    <Line type="monotone" dataKey="v" stroke="var(--info)" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border bg-secondary/10">
-                    {['Call Sign', 'Type', 'Status', 'Driver', 'Position'].map(h => (
-                      <th key={h} className="text-left px-4 py-2 font-mono text-muted-foreground uppercase tracking-wider text-[10px]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {ambulances.map(a => (
-                    <tr key={a.ambulance_id} className="hover:bg-secondary/20 transition-colors">
-                      <td className="px-4 py-2.5 font-mono font-bold text-cyan-400">{a.vehicle_number}</td>
-                      <td className="px-4 py-2.5 font-mono text-muted-foreground">Emergency</td>
-                      <td className="px-4 py-2.5"><AmbulanceStatusChip status={a.status} /></td>
-                      <td className="px-4 py-2.5">{a.driver_name ?? 'Unknown'}</td>
-                      <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">
-                        {a.latitude && a.longitude ? `${a.latitude.toFixed(4)}, ${a.longitude.toFixed(4)}` : 'No GPS'}
-                      </td>
-                    </tr>
-                  ))}
-                  {ambulances.length === 0 && (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground font-mono">No ambulances in fleet</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="rounded-lg border border-border bg-card p-4">
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Response Time (24H)</span>
-              <ResponsiveContainer width="100%" height={120}>
-                <LineChart data={RESPONSE_DATA}>
-                  <XAxis dataKey="t" tick={{ fontSize: 9, fill: '#64748b', fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
-                  <YAxis hide domain={[4, 14]} />
-                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', color: '#e2e8f0' }} />
-                  <Line type="monotone" dataKey="v" stroke="#22d3ee" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="card flex flex-col gap-3">
+              <span className="section-label">Weekly Volume</span>
+              <div className="h-32 -ml-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={WEEKLY_DATA} margin={{ top: 5, right: 0, left: 0, bottom: 0 }} barSize={10}>
+                    <XAxis dataKey="d" tick={{ fontSize: 10, fill: 'var(--text-dim)', fontFamily: 'Barlow' }} axisLine={false} tickLine={false} />
+                    <YAxis hide />
+                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)' }} />
+                    <Bar dataKey="c" stackId="a" fill="var(--info)" radius={[0, 0, 2, 2]} />
+                    <Bar dataKey="h" stackId="a" fill="var(--safe)" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-            <div className="rounded-lg border border-border bg-card p-4">
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Weekly Assignments</span>
-              <ResponsiveContainer width="100%" height={120}>
-                <BarChart data={WEEKLY_DATA} barSize={8}>
-                  <XAxis dataKey="d" tick={{ fontSize: 9, fill: '#64748b', fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
-                  <YAxis hide />
-                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', color: '#e2e8f0' }} />
-                  <Bar dataKey="c" fill="#22d3ee" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="h" fill="#22c55e" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-4">
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Severity Distribution</span>
+
+            <div className="card flex flex-col gap-3">
+              <span className="section-label">Severity Distribution</span>
               {severityData.length > 0 ? (
-                <div className="flex items-center gap-3">
-                  <ResponsiveContainer width={90} height={90}>
+                <div className="flex items-center h-32">
+                  <ResponsiveContainer width="45%" height="100%">
                     <PieChart>
-                      <Pie data={severityData} cx="50%" cy="50%" innerRadius={28} outerRadius={42} dataKey="value" strokeWidth={0}>
-                        {severityData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                      <Pie data={severityData} cx="50%" cy="50%" innerRadius={30} outerRadius={46} dataKey="value" stroke="var(--bg-card)" strokeWidth={2}>
+                        {severityData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="space-y-1 flex-1">
+                  <div className="flex-1 flex flex-col gap-2 justify-center pl-2">
                     {severityData.map(d => (
-                      <div key={d.name} className="flex items-center justify-between text-[10px] font-mono">
-                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block" style={{ background: d.color }} />{d.name}</span>
-                        <span style={{ color: d.color }}>{d.value}</span>
+                      <div key={d.name} className="flex items-center gap-2 text-xs" style={{ fontFamily: 'Barlow', color: 'var(--text-muted)' }}>
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                        <span className="flex-1">{d.name}</span>
+                        <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>
+                          {d.value}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div className="h-[90px] flex items-center justify-center text-xs text-muted-foreground font-mono">No data</div>
+                <div className="h-32 flex items-center justify-center"><EmptyState icon={Activity} title="No Data" /></div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ════ FLEET ════ */}
+      {/* ════ FLEET SECTION ════ */}
       {activeSection === 'fleet' && (
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-secondary/20">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider">Ambulance Fleet</span>
+        <div className="card p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b" style={{ background: 'var(--bg-surface)' }}>
+            <span className="section-label">Ambulance Units ({ambulances.length})</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="border-b border-border bg-secondary/10">
-                {['#ID', 'Vehicle', 'Driver', 'Status', 'Location'].map(h => (
-                  <th key={h} className="text-left px-4 py-2 font-mono text-muted-foreground tracking-wider">{h}</th>
-                ))}
-              </tr></thead>
-              <tbody className="divide-y divide-border">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr>
+                  <th className="th-cell">Unit ID</th>
+                  <th className="th-cell">Status</th>
+                  <th className="th-cell">Driver</th>
+                  <th className="th-cell hidden md:table-cell">Last Position</th>
+                </tr>
+              </thead>
+              <tbody>
                 {ambulances.map(a => (
-                  <tr key={a.ambulance_id} className="hover:bg-secondary/20 transition-colors">
-                    <td className="px-4 py-2.5 font-mono">{a.ambulance_id}</td>
-                    <td className="px-4 py-2.5 font-mono font-bold text-cyan-400">{a.vehicle_number}</td>
-                    <td className="px-4 py-2.5">{a.driver_name ?? '—'}</td>
-                    <td className="px-4 py-2.5"><AmbulanceStatusChip status={a.status} /></td>
-                    <td className="px-4 py-2.5 font-mono text-muted-foreground text-[10px]">{a.latitude.toFixed(4)}, {a.longitude.toFixed(4)}</td>
+                  <tr key={a.ambulance_id} className="tr-hover">
+                    <td className="td-cell">
+                      <div className="flex flex-col gap-1">
+                        <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, color: 'var(--text)', fontSize: 14 }}>
+                          {a.vehicle_number}
+                        </span>
+                        <span className="text-[10px] uppercase">ID: {a.ambulance_id}</span>
+                      </div>
+                    </td>
+                    <td className="td-cell"><StatusBadge status={a.status} /></td>
+                    <td className="td-cell">{a.driver_name || '—'}</td>
+                    <td className="td-cell hidden md:table-cell" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>
+                      {a.latitude && a.longitude ? `${a.latitude.toFixed(4)}, ${a.longitude.toFixed(4)}` : 'UNKNOWN'}
+                    </td>
                   </tr>
                 ))}
+                {ambulances.length === 0 && (
+                  <tr><td colSpan={4}><EmptyState icon={Truck} title="No Fleet Data" /></td></tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* ════ USERS ════ */}
+      {/* ════ USERS SECTION ════ */}
       {activeSection === 'users' && (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           <div className="flex justify-end">
-            <Button onClick={() => setShowCreateUser(!showCreateUser)} className="gap-2 text-xs">
-              <UserPlus className="h-4 w-4" />
-              {showCreateUser ? 'Cancel' : 'Create User'}
-            </Button>
+            <button
+              onClick={() => setShowCreateUser(!showCreateUser)}
+              className="btn-base"
+              style={{
+                background: 'var(--bg-raised)', color: 'var(--text)', border: '1px solid var(--border)',
+                height: 40, padding: '0 16px', borderRadius: 'var(--radius)'
+              }}
+            >
+              {showCreateUser ? 'Cancel' : '+ Add User'}
+            </button>
           </div>
 
           {showCreateUser && (
-            <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="text-xs font-mono font-bold mb-4 uppercase tracking-wider">New User</h3>
-              <form onSubmit={handleCreateUser} className="space-y-4">
-                {createError && <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">{createError}</div>}
-                <div className="grid grid-cols-2 gap-4">
-                  {['name', 'email', 'password'].map(field => (
-                    <div key={field} className="space-y-1.5">
-                      <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{field}</label>
-                      <input type={field === 'password' ? 'password' : 'text'} value={(newUser as any)[field]}
-                        onChange={e => setNewUser(p => ({ ...p, [field]: e.target.value }))}
-                        className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
-                    </div>
-                  ))}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Role</label>
-                    <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}
-                      className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary">
+            <div className="card animate-slide-in-up flex flex-col gap-4">
+              <span className="section-label">Create Identity</span>
+              <form onSubmit={handleCreateUser} className="flex flex-col gap-4">
+                {createError && (
+                  <div className="p-3 text-sm rounded bg-[var(--critical-bg)] text-[var(--critical)] border border-[var(--critical-br)]">
+                    {createError}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="section-label">Name</label>
+                    <input type="text" className="input-aes" value={newUser.name} onChange={e => setNewUser(p => ({ ...p, name: e.target.value }))} required />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="section-label">Email</label>
+                    <input type="email" className="input-aes" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} required />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="section-label">Password</label>
+                    <input type="password" className="input-aes" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} required />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="section-label">Role</label>
+                    <select className="input-aes" value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}>
                       <option value="ambulance">Ambulance</option>
                       <option value="hospital">Hospital</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Entity ID (optional)</label>
-                    <input type="number" value={newUser.entity_id} onChange={e => setNewUser(p => ({ ...p, entity_id: e.target.value }))}
-                      placeholder="Hospital or Ambulance ID"
-                      className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+                  <div className="flex flex-col gap-1.5 md:col-span-2 lg:col-span-4 lg:w-1/4">
+                    <label className="section-label">Entity Link ID (Optional)</label>
+                    <input type="number" className="input-aes" placeholder="Hospital/Ambulance ID" value={newUser.entity_id} onChange={e => setNewUser(p => ({ ...p, entity_id: e.target.value }))} />
                   </div>
                 </div>
-                <Button type="submit" disabled={creating} className="w-full">
-                  {creating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Create User
-                </Button>
+                <button type="submit" disabled={creating} className="btn-base btn-primary w-fit mt-2">
+                  {creating ? 'Creating...' : 'Create Account'}
+                </button>
               </form>
             </div>
           )}
 
-          {/* ── Password Reset Result Banner ── */}
           {resetResult && (
-            <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-mono font-bold text-yellow-400">🔑 Password Reset — {resetResult.name}</p>
-                <button onClick={() => setResetResult(null)} className="text-muted-foreground hover:text-foreground text-xs font-mono">✕ Dismiss</button>
+            <div className="p-4 rounded border" style={{ background: 'var(--warning-bg)', borderColor: 'var(--warning)', color: 'var(--text)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="section-label" style={{ color: 'var(--warning)' }}>Password Reset Success</span>
+                <span className="text-sm font-semibold">{resetResult.name}</span>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-secondary/30 rounded-md">
-                <span className="font-mono text-sm text-white tracking-widest select-all">{resetResult.password}</span>
-                <button onClick={() => navigator.clipboard.writeText(resetResult.password)}
-                  className="text-[10px] font-mono text-primary hover:text-primary/80 border border-primary/30 px-2 py-1 rounded">
-                  Copy
-                </button>
+              <div className="flex items-center gap-4 bg-[var(--bg-base)] border p-2 rounded w-fit">
+                <span className="font-mono text-lg tracking-wider ms-2">{resetResult.password}</span>
+                <button onClick={() => navigator.clipboard.writeText(resetResult.password)} className="badge badge-pending cursor-pointer">Copy</button>
               </div>
-              <p className="text-[10px] font-mono text-yellow-400/70">⚠️ Share this password with the user now — it will not be shown again.</p>
+              <p className="text-xs mt-2" style={{ color: 'var(--warning)' }}>Give this password to the user. It will not be shown again.</p>
+              <button onClick={() => setResetResult(null)} className="absolute top-4 right-4"><X size={16} /></button>
             </div>
           )}
 
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border bg-secondary/20">
-              <span className="text-xs font-mono font-bold uppercase tracking-wider">All Users ({adminUsers.length})</span>
+          <div className="card p-0 overflow-hidden">
+            <div className="px-4 py-3 border-b" style={{ background: 'var(--bg-surface)' }}>
+              <span className="section-label">System Identities ({adminUsers.length})</span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr className="border-b border-border bg-secondary/10">
-                  {['#ID', 'Name', 'Email', 'Role', 'Entity ID', 'Actions'].map(h => (
-                    <th key={h} className="text-left px-4 py-2 font-mono text-muted-foreground tracking-wider">{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody className="divide-y divide-border">
-                  {adminUsers.map(u => (
-                    <tr key={u.user_id} className={cn('transition-colors', u.email.startsWith('DEACTIVATED_') ? 'opacity-40' : 'hover:bg-secondary/20')}>
-                      <td className="px-4 py-2.5 font-mono">{u.user_id}</td>
-                      <td className="px-4 py-2.5">{u.name}</td>
-                      <td className="px-4 py-2.5 font-mono text-muted-foreground">{u.email}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={cn('font-mono text-xs capitalize', u.role === 'admin' ? 'text-primary' : u.role === 'hospital' ? 'text-blue-400' : 'text-green-400')}>{u.role}</span>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono">{u.entity_id ?? '—'}</td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-3">
-                          {/* ── Reset Password Button ── */}
-                          {!u.email.startsWith('DEACTIVATED_') && (
-                            <button onClick={() => handleResetPassword(u.user_id)} disabled={resettingPassword === u.user_id}
-                              className="flex items-center gap-1 text-yellow-400 hover:text-yellow-300 transition-colors text-xs font-mono disabled:opacity-50">
-                              {resettingPassword === u.user_id ? <Loader2 className="h-3 w-3 animate-spin" /> : '🔑'}
-                              Reset
-                            </button>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr>
+                    <th className="th-cell">ID & Name</th>
+                    <th className="th-cell">Access</th>
+                    <th className="th-cell">Email</th>
+                    <th className="th-cell text-right">Settings</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminUsers.map(u => {
+                    const deact = u.email.startsWith('DEACTIVATED_');
+                    return (
+                      <tr key={u.user_id} className={`tr-hover ${deact ? 'opacity-50' : ''}`}>
+                        <td className="td-cell">
+                          <div className="flex flex-col gap-1">
+                            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, color: 'var(--text)', fontSize: 14 }}>{u.name}</span>
+                            <span className="text-[10px] uppercase">ID: {u.user_id}</span>
+                          </div>
+                        </td>
+                        <td className="td-cell">
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className={`badge badge-${u.role}`}>{u.role}</span>
+                            {u.entity_id && <span className="text-[10px]">LNK: {u.entity_id}</span>}
+                          </div>
+                        </td>
+                        <td className="td-cell font-mono text-[11px] max-w-[150px] truncate" title={u.email}>{u.email}</td>
+                        <td className="td-cell align-middle text-right min-w-[180px]">
+                          {!deact ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={() => handleResetPassword(u.user_id)} disabled={resettingPassword === u.user_id}
+                                className="badge hover:opacity-80 transition-opacity" style={{ background: 'var(--warning-bg)', color: 'var(--warning)', cursor: 'pointer', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                {resettingPassword === u.user_id ? 'WAIT..' : 'RESET PWD'}
+                              </button>
+                              {u.role !== 'admin' && (
+                                <button onClick={() => deactivateUser(u.user_id)}
+                                  className="badge hover:opacity-80 transition-opacity" style={{ background: 'var(--critical-bg)', color: 'var(--critical)', cursor: 'pointer', border: '1px solid var(--critical-br)' }}>
+                                  REVOKE
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="badge badge-cancelled">REVOKED</span>
                           )}
-                          {/* ── Deactivate Button ── */}
-                          {!u.email.startsWith('DEACTIVATED_') && u.role !== 'admin' && (
-                            <button onClick={() => deactivateUser(u.user_id)}
-                              className="flex items-center gap-1 text-red-400 hover:text-red-300 transition-colors text-xs font-mono">
-                              <Ban className="h-3 w-3" /> Deactivate
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              {adminUsers.length === 0 && <div className="p-8 text-center text-muted-foreground font-mono text-sm">No users found</div>}
             </div>
           </div>
         </div>
       )}
 
-      {/* ════ HOSPITALS ════ */}
+      {/* ════ HOSPITALS SECTION ════ */}
       {activeSection === 'hospitals' && (
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/20">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider">Hospital Specialities</span>
-            <span className="text-[10px] font-mono text-muted-foreground">
-              {hospitals.length} hospitals · Specialities determine automatic allocation
-            </span>
+        <div className="card p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b" style={{ background: 'var(--bg-surface)' }}>
+            <span className="section-label">Medical Facilities ({hospitals.length})</span>
           </div>
-          <div className="divide-y divide-border">
+          <div className="flex flex-col">
             {hospitals.map(h => (
-              <div key={h.hospital_id} className="px-4 py-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="text-xs font-bold font-mono text-cyan-400">#{h.hospital_id}</span>
-                      <span className="text-sm font-medium truncate">{h.name}</span>
-                      <span className={cn('text-[10px] font-mono px-1.5 py-0.5 rounded border',
-                        h.available_beds > 0 ? 'text-green-400 border-green-500/40 bg-green-500/10' : 'text-red-400 border-red-500/40 bg-red-500/10'
-                      )}>
-                        {h.available_beds > 0 ? `${h.available_beds} beds` : 'Full'}
+              <div key={h.hospital_id} className="p-4 border-b hover:bg-[rgba(255,255,255,0.015)] transition-colors">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                  <div className="flex flex-col gap-2 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, color: 'var(--text)', fontSize: 16 }}>{h.name}</span>
+                      <span className="badge" style={{ background: 'var(--bg-raised)', color: 'var(--text-dim)', border: '1px solid var(--border)' }}>ID: {h.hospital_id}</span>
+                      <span className={h.available_beds > 0 ? 'badge badge-available' : 'badge badge-critical'}>
+                        {h.available_beds > 0 ? `${h.available_beds} BEDS` : 'AT CAPACITY'}
                       </span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground font-mono mb-2">{h.address}</p>
                     {editingHospitalId === h.hospital_id ? (
-                      <div className="space-y-3">
+                      <div className="mt-2 flex flex-col gap-3 p-3 rounded bg-[var(--bg-raised)] border">
+                        <span className="section-label">Edit Specialities Matrix</span>
                         <div className="flex flex-wrap gap-2">
-                          {ALL_SPECIALITIES.map(spec => (
-                            <button key={spec} onClick={() => handleToggleSpec(spec)}
-                              className={cn('px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider border transition-colors',
-                                editingSpecs.includes(spec)
-                                  ? 'bg-primary/20 text-primary border-primary/50'
-                                  : 'bg-secondary text-muted-foreground border-border hover:border-primary/30'
-                              )}>
-                              {editingSpecs.includes(spec) ? '✓ ' : ''}{spec}
-                            </button>
-                          ))}
+                          {ALL_SPECIALITIES.map(spec => {
+                            const active = editingSpecs.includes(spec);
+                            return (
+                              <button key={spec} onClick={() => handleToggleSpec(spec)}
+                                className={active ? 'badge badge-allocated' : 'badge'}
+                                style={!active ? { background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-dim)' } : { cursor: 'pointer' }}>
+                                {active ? '✓ ' : '+ '}{spec}
+                              </button>
+                            );
+                          })}
                         </div>
-                        {specError && <p className="text-xs text-red-400 font-mono">{specError}</p>}
-                        <div className="flex gap-2">
-                          <button onClick={handleSaveSpecs} disabled={savingSpecs}
-                            className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-mono hover:bg-primary/80 disabled:opacity-50">
-                            {savingSpecs ? 'Saving...' : 'Save'}
+                        {specError && <span className="text-xs" style={{ color: 'var(--critical)' }}>{specError}</span>}
+                        <div className="flex gap-2.5 pt-2 border-t mt-1">
+                          <button onClick={handleSaveSpecs} disabled={savingSpecs} className="btn-base" style={{ height: 32, padding: '0 12px', fontSize: 12, background: 'var(--info)', color: '#fff', borderRadius: 4 }}>
+                            {savingSpecs ? 'SAVING..' : 'CONFIRM UPDATE'}
                           </button>
-                          <button onClick={() => setEditingHospitalId(null)}
-                            className="px-3 py-1 rounded-md bg-secondary text-muted-foreground text-xs font-mono hover:text-foreground">
-                            Cancel
+                          <button onClick={() => setEditingHospitalId(null)} className="btn-base" style={{ height: 32, padding: '0 12px', fontSize: 12, background: 'var(--bg-base)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4 }}>
+                            CANCEL
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {(h.specialities ?? []).length > 0
-                          ? h.specialities.map(s => (
-                            <span key={s} className="px-2 py-0.5 rounded bg-secondary text-[10px] font-mono text-secondary-foreground capitalize">{s}</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(h.specialities ?? []).length > 0 ? (
+                          h.specialities.map(s => (
+                            <span key={s} className="badge" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text)' }}>{s}</span>
                           ))
-                          : <span className="text-[10px] text-muted-foreground font-mono italic">No specialities — won't match specific emergency types</span>
-                        }
+                        ) : (
+                          <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>NO SPECIALITIES DECLARED</span>
+                        )}
                       </div>
                     )}
                   </div>
                   {editingHospitalId !== h.hospital_id && (
-                    <button onClick={() => handleEditSpecs(h)}
-                      className="shrink-0 px-3 py-1 rounded-md border border-border text-xs font-mono text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
-                      Edit
+                    <button onClick={() => handleEditSpecs(h)} className="btn-base shrink-0" style={{ height: 32, padding: '0 12px', fontSize: 12, background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4 }}>
+                      EDIT CAPABILITIES
                     </button>
                   )}
                 </div>
               </div>
             ))}
-            {hospitals.length === 0 && (
-              <div className="p-10 text-center text-muted-foreground font-mono text-sm">No hospitals found</div>
-            )}
           </div>
         </div>
       )}
 
-      {/* ════ DISPATCH ════ */}
+      {/* ════ DISPATCH SECTION ════ */}
       {activeSection === 'dispatch' && (
-        <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-secondary/20">
-              <span className="text-lg">📞</span>
-              <div>
-                <span className="text-xs font-mono font-bold uppercase tracking-wider">108 Emergency Dispatch</span>
-                <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                  Log emergency from caller → system auto-allocates nearest ambulance and optimal hospital
-                </p>
-              </div>
-            </div>
-            <form onSubmit={handleDispatch} className="p-4 space-y-5">
-              {dispatchError && (
-                <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">{dispatchError}</div>
-              )}
-              {dispatchResult && (
-                <div className="rounded-md bg-green-500/10 border border-green-500/20 p-4 space-y-2">
-                  <p className="text-sm font-mono font-bold text-green-400">✅ Emergency Dispatched Successfully</p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs font-mono">
-                    <div>
-                      <p className="text-muted-foreground">Emergency ID</p>
-                      <p className="text-cyan-400 font-bold">ASG-{String(dispatchResult.emergency_id).padStart(3, '0')}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Ambulance</p>
-                      <p className="text-white">{dispatchResult.allocated_ambulance ?? '—'}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Hospital</p>
-                      <p className="text-white">{dispatchResult.allocated_hospital ?? '—'}</p>
-                    </div>
+        <div className="card card-critical p-0 overflow-hidden max-w-2xl mx-auto w-full">
+          <div className="p-5 border-b flex flex-col gap-1" style={{ background: 'var(--critical-bg)' }}>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 22, color: 'var(--critical)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              108 Dispatch Terminal
+            </span>
+            <span style={{ fontFamily: 'Barlow', fontSize: 13, color: 'var(--text-muted)' }}>
+              Direct inject to automated assignment engine.
+            </span>
+          </div>
+
+          <form onSubmit={handleDispatch} className="p-6 flex flex-col gap-5 bg-[var(--bg-surface)]">
+            {dispatchError && (
+              <AlertBanner message={dispatchError} onDismiss={() => setDispatchError('')} />
+            )}
+
+            {dispatchResult && (
+              <div className="p-4 rounded border flex flex-col gap-3" style={{ background: 'var(--safe-bg)', borderColor: 'rgba(22,163,74,0.3)' }}>
+                <span className="section-label" style={{ color: 'var(--safe)' }}>Dispatch Confirmed</span>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Assign ID</span>
+                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16 }}>ASG-{String(dispatchResult.emergency_id).padStart(3, '0')}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Ambulance</span>
+                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16 }}>{dispatchResult.allocated_ambulance ?? 'AWAITING'}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Hospital</span>
+                    <span className="truncate" style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16 }}>{dispatchResult.allocated_hospital ?? 'AWAITING'}</span>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Caller / Patient Name</label>
-                  <input type="text" value={dispatchForm.patient_name}
-                    onChange={e => setDispatchForm(p => ({ ...p, patient_name: e.target.value }))}
-                    placeholder="Unknown Caller"
-                    className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Emergency Type</label>
-                  <select value={dispatchForm.emergency_type}
-                    onChange={e => setDispatchForm(p => ({ ...p, emergency_type: e.target.value }))}
-                    className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary">
-                    {EMERGENCY_TYPE_OPTIONS.map(([val, label]) => (
-                      <option key={val} value={val}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Severity</label>
-                  <select value={dispatchForm.severity}
-                    onChange={e => setDispatchForm(p => ({ ...p, severity: e.target.value }))}
-                    className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary">
-                    {[['critical', '🔴 Critical'], ['high', '🟠 High'], ['medium', '🟡 Medium'], ['low', '🟢 Low']].map(([val, label]) => (
-                      <option key={val} value={val}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5 md:col-span-2">
-                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Caller Description</label>
-                  <textarea value={dispatchForm.description}
-                    onChange={e => setDispatchForm(p => ({ ...p, description: e.target.value }))}
-                    placeholder="Describe what the caller reported — injuries, location landmarks, number of patients..."
-                    rows={3}
-                    className="w-full px-3 py-2 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none" />
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="section-label">Caller / Patient Name</label>
+                <input type="text" className="input-aes" value={dispatchForm.patient_name} onChange={e => setDispatchForm(p => ({ ...p, patient_name: e.target.value }))} placeholder="E.g. John Doe / Bystander" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="section-label">Condition / Protocol</label>
+                <select className="input-aes relative" value={dispatchForm.emergency_type} onChange={e => setDispatchForm(p => ({ ...p, emergency_type: e.target.value }))}>
+                  {EMERGENCY_TYPE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="section-label">Severity Override</label>
+                <select className="input-aes" value={dispatchForm.severity} onChange={e => setDispatchForm(p => ({ ...p, severity: e.target.value }))}>
+                  <option value="critical">CRITICAL (5 MIN SLA)</option>
+                  <option value="high">HIGH (10 MIN SLA)</option>
+                  <option value="medium">MEDIUM (20 MIN SLA)</option>
+                  <option value="low">LOW (30 MIN SLA)</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="section-label">Incident Description</label>
+                <textarea className="input-aes py-3 resize-none h-20" value={dispatchForm.description} onChange={e => setDispatchForm(p => ({ ...p, description: e.target.value }))} placeholder="Injuries, landmarks, hazards..." />
               </div>
 
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-3 md:col-span-2 p-4 border rounded bg-[var(--bg-raised)]">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Accident Location</label>
-                  <button type="button" onClick={detectDispatchGPS}
-                    className="flex items-center gap-1 text-[10px] font-mono text-primary hover:text-primary/80 transition-colors">
-                    {dispatchGpsLoading ? '📡 Detecting...' : '📡 Use My Location'}
+                  <label className="section-label flex items-center gap-2"><MapPin size={12} /> Extraction Point</label>
+                  <button type="button" onClick={detectDispatchGPS} className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color: 'var(--info)', fontFamily: 'Barlow Condensed', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase' }}>
+                    {dispatchGpsLoading ? 'Locking...' : 'Auto-Lock GPS'}
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="number" step="any" value={dispatchForm.latitude}
-                    onChange={e => setDispatchForm(p => ({ ...p, latitude: e.target.value }))}
-                    placeholder="Latitude (e.g. 13.0827)"
-                    className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
-                  <input type="number" step="any" value={dispatchForm.longitude}
-                    onChange={e => setDispatchForm(p => ({ ...p, longitude: e.target.value }))}
-                    placeholder="Longitude (e.g. 80.2707)"
-                    className="w-full h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
+                  <input type="number" step="any" className="input-aes font-['Barlow_Condensed'] font-bold text-base" placeholder="LAT" value={dispatchForm.latitude} onChange={e => setDispatchForm(p => ({ ...p, latitude: e.target.value }))} required />
+                  <input type="number" step="any" className="input-aes font-['Barlow_Condensed'] font-bold text-base" placeholder="LNG" value={dispatchForm.longitude} onChange={e => setDispatchForm(p => ({ ...p, longitude: e.target.value }))} required />
                 </div>
-                {dispatchForm.latitude && dispatchForm.longitude && (
-                  <p className="text-[10px] font-mono text-muted-foreground">
-                    📍 {parseFloat(dispatchForm.latitude).toFixed(4)}, {parseFloat(dispatchForm.longitude).toFixed(4)}
-                  </p>
-                )}
               </div>
+            </div>
 
-              <div className="rounded-md bg-secondary/20 border border-border p-3 text-[10px] font-mono text-muted-foreground space-y-1">
-                <p className="font-bold text-foreground text-xs">🤖 Smart Auto-Allocation</p>
-                <p>• Nearest available ambulance will be dispatched automatically</p>
-                <p>• Speciality-matched hospital selected if reachable within 15 minutes</p>
-                <p>• Falls back to nearest available hospital if no speciality match found in time</p>
-              </div>
-
-              <Button type="submit" disabled={dispatching} className="w-full h-11 font-mono tracking-wider bg-red-600 hover:bg-red-500">
-                {dispatching ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Dispatching...</> : <>📞 Dispatch Emergency</>}
-              </Button>
-            </form>
-          </div>
+            <button type="submit" disabled={dispatching} className="btn-base btn-primary w-full mt-2" style={{ height: 52, fontSize: 16 }}>
+              {dispatching ? 'ROUTING TO NETWORK...' : 'DISPATCH EMERGENCY'}
+            </button>
+          </form>
         </div>
       )}
 

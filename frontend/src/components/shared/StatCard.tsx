@@ -1,48 +1,30 @@
-import { cn } from '@/lib/utils';
-import type { LucideIcon } from 'lucide-react';
+import { type LucideIcon } from 'lucide-react';
 
 interface StatCardProps {
-  title: string;
+  label: string;
   value: string | number;
-  subtitle?: string;
   icon: LucideIcon;
-  variant?: 'default' | 'emergency' | 'success' | 'warning' | 'info';
-  className?: string;
+  sub?: string;
+  accentColor?: 'red' | 'amber' | 'green' | 'blue';
 }
 
-const variantStyles = {
-  default: 'border-border',
-  emergency: 'border-emergency/30 glow-emergency',
-  success: 'border-success/30 glow-success',
-  warning: 'border-warning/30',
-  info: 'border-info/30',
+const accentMap = {
+  red:   { top: 'card-critical', icon: 'text-[var(--critical)]', value: 'text-[var(--critical)]' },
+  amber: { top: 'card-warning',  icon: 'text-[#F59E0B]',          value: 'text-[#F59E0B]' },
+  green: { top: 'card-safe',     icon: 'text-[var(--safe)]',       value: 'text-[var(--safe)]' },
+  blue:  { top: 'card-info',     icon: 'text-[var(--info)]',       value: 'text-[var(--info)]' },
 };
 
-const iconVariantStyles = {
-  default: 'text-primary',
-  emergency: 'text-emergency',
-  success: 'text-success',
-  warning: 'text-warning',
-  info: 'text-info',
-};
-
-export function StatCard({ title, value, subtitle, icon: Icon, variant = 'default', className }: StatCardProps) {
+export function StatCard({ label, value, icon: Icon, sub, accentColor = 'blue' }: StatCardProps) {
+  const theme = accentMap[accentColor];
   return (
-    <div className={cn(
-      'rounded-lg border bg-card p-4 transition-all duration-300 hover:bg-secondary/50',
-      variantStyles[variant],
-      className
-    )}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="panel-header mb-1">{title}</p>
-          <p className="text-2xl font-bold font-mono tracking-tight">{value}</p>
-          {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
-        </div>
-        <div className={cn('p-2 rounded-md bg-secondary/50', iconVariantStyles[variant])}>
-          <Icon className="h-5 w-5" />
-        </div>
+    <div className={`card ${theme.top} flex flex-col gap-3`}>
+      <div className="flex items-center justify-between">
+        <span className="section-label">{label}</span>
+        <Icon className={`w-4 h-4 shrink-0 ${theme.icon}`} />
       </div>
+      <p className={`stat-value ${theme.value}`}>{value}</p>
+      {sub && <p className="text-xs text-[var(--text-dim)] font-['Barlow',sans-serif]">{sub}</p>}
     </div>
   );
 }

@@ -1,43 +1,73 @@
 import { useState, useEffect } from 'react';
 import { useStore, BackendEmergency, BackendHospital } from '@/store/useStore';
-import { Building2, Bed, CheckCircle2, Minus, Plus, Clock, AlertTriangle, Loader2, Power, MapPin } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import {
+  Building2, Bed, CheckCircle2, Minus, Plus,
+  Clock, AlertTriangle, Loader2, MapPin, Activity
+} from 'lucide-react';
 import LiveMap from '@/components/map/LiveMap';
 import { haversineKm } from '@/utils/haversine';
+import { SeverityBadge } from '@/components/shared/SeverityBadge';
+import { StatusBadge } from '@/components/shared/StatusBadge';
+import { StatCard } from '@/components/shared/StatCard';
+import { EmptyState } from '@/components/shared/EmptyState';
 
-function SeverityBadge({ severity }: { severity: string }) {
-  const map: Record<string, string> = {
-    critical: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    high: 'bg-orange-500/20 text-orange-400 border border-orange-500/40',
-    medium: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40',
-    low: 'bg-green-500/20 text-green-400 border border-green-500/40',
-  };
-  return <span className={cn('px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider', map[severity] ?? 'bg-muted')}>{severity}</span>;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    allocated: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
-    en_route: 'bg-purple-500/20 text-purple-400 border border-purple-500/40',
-    arrived: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40',
-    completed: 'bg-green-500/20 text-green-400 border border-green-500/40',
-    cancelled: 'bg-muted text-muted-foreground border-border',
-    escalated: 'bg-red-500/20 text-red-400 border border-red-500/40',
-    pending: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40',
-  };
-  return <span className={cn('px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider border', map[status] ?? 'bg-muted')}>{status.replace('_', ' ')}</span>;
-}
-
+// ── Capacity bar ───────────────────────────────────────────────────────────────
 function CapacityBar({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden mt-2">
+    <div className="h-1.5 w-full rounded-full overflow-hidden mt-2" style={{ background: 'var(--border)' }}>
       <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
     </div>
   );
 }
 
+// ── Bed control card ───────────────────────────────────────────────────────────
+function BedCard({
+  label, value, max, color, onDec, onInc, disabled, loading,
+}: {
+  label: string; value: number; max: number; color: string;
+  onDec?: () => void; onInc?: () => void; disabled?: boolean; loading?: boolean;
+}) {
+  return (
+    <div className="card flex flex-col gap-2">
+      <span className="section-label">{label}</span>
+      <p className="stat-value" style={{ color }}>{value}</p>
+      <p className="text-xs" style={{ color: 'var(--text-dim)' }}>of {max} capacity</p>
+      <CapacityBar value={value} max={max} color={color} />
+      {(onDec || onInc) && (
+        <div className="flex items-center justify-center gap-3 mt-1">
+          <button
+            onClick={onDec}
+            disabled={disabled || value <= 0}
+            className="flex items-center justify-center rounded transition-colors"
+            style={{
+              width: 30, height: 30, border: '1px solid var(--border)',
+              color: 'var(--text-dim)', background: 'var(--bg-raised)',
+            }}
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Minus size={12} />}
+          </button>
+          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16, minWidth: 28, textAlign: 'center' }}>
+            {value}
+          </span>
+          <button
+            onClick={onInc}
+            disabled={disabled}
+            className="flex items-center justify-center rounded transition-colors"
+            style={{
+              width: 30, height: 30, border: '1px solid var(--border)',
+              color: 'var(--text-dim)', background: 'var(--bg-raised)',
+            }}
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function HospitalDashboard() {
   const {
     currentUser, emergencies, fetchHospitalEmergencies,
@@ -55,25 +85,29 @@ export default function HospitalDashboard() {
   const { hospitals, fetchHospitals } = useStore();
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
 
-  const effectiveHospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
-  const isReadOnly = currentUser?.role === 'ambulance' ||
+  const effectiveHospitalId =
+    currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
+  const isReadOnly =
+    currentUser?.role === 'ambulance' ||
     (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveHospitalId);
 
-  const totalBeds = hospital?.available_beds ?? 0;
+  const totalBeds  = hospital?.available_beds ?? 0;
   const generalBeds = Math.round(totalBeds * 0.7);
-  const icuBeds = Math.round(totalBeds * 0.2);
-  const erBeds = Math.round(totalBeds * 0.1);
+  const icuBeds     = Math.round(totalBeds * 0.2);
+  const erBeds      = Math.round(totalBeds * 0.1);
 
   const loadData = async () => {
     if (currentUser?.role !== 'hospital' && hospitals.length === 0) await fetchHospitals();
-    const hospitalId = currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
+    const hospitalId =
+      currentUser?.role === 'hospital' ? currentUser.entity_id : selectedHospitalId;
     if (!hospitalId) { setLoading(false); return; }
 
     setLoading(true);
     try {
-      const hospData = currentUser?.role === 'hospital'
-        ? await fetchMyHospital()
-        : hospitals.find(h => h.hospital_id === hospitalId) ?? null;
+      const hospData =
+        currentUser?.role === 'hospital'
+          ? await fetchMyHospital()
+          : hospitals.find(h => h.hospital_id === hospitalId) ?? null;
       const emergData = await fetchHospitalEmergencies(hospitalId);
       setHospital(hospData);
       setActiveEmergencies(emergData.active ?? []);
@@ -89,17 +123,16 @@ export default function HospitalDashboard() {
     loadData();
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveHospitalId, hospitals.length]);
 
-  // ✅ Fix 3: When socket updates emergencies in store, sync ambulance coords
-  // into local activeEmergencies so the map re-renders with new position
+  // Sync ambulance positions from socket updates
   useEffect(() => {
     if (emergencies.length === 0) return;
     setActiveEmergencies(prev =>
       prev.map(local => {
         const updated = emergencies.find(e => e.emergency_id === local.emergency_id);
         if (!updated?.ambulance) return local;
-        // Only update ambulance lat/lng — preserve rest of local state
         return {
           ...local,
           ambulance: {
@@ -133,34 +166,50 @@ export default function HospitalDashboard() {
     setBedsUpdating(true);
     try {
       await updateBeds(effectiveHospitalId, newBeds);
-      setHospital(prev => prev ? { ...prev, available_beds: newBeds, status: newBeds > 0 ? 'GREEN' : 'RED' } : prev);
+      setHospital(prev =>
+        prev ? { ...prev, available_beds: newBeds, status: newBeds > 0 ? 'GREEN' : 'RED' } : prev
+      );
     } catch (err: any) { alert(err.message || 'Failed to update beds'); }
     finally { setBedsUpdating(false); }
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+    return (
+      <div className="flex items-center justify-center h-full min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--critical)' }} />
+      </div>
+    );
   }
 
   const isAvailable = hospital?.status === 'GREEN';
 
+  // ── Hospital selector for non-hospital roles ─────────────────────────────────
   if (!effectiveHospitalId && currentUser?.role !== 'hospital') {
     return (
-      <div className="space-y-4 animate-slide-in-up">
-        <div className="flex items-center justify-between p-4 bg-card border border-border rounded-lg">
-          <div>
-            <h2 className="text-sm font-bold font-mono uppercase tracking-wider">Select Hospital</h2>
-            <p className="text-xs text-muted-foreground mt-1">Choose a hospital to view its dashboard.</p>
-          </div>
+      <div className="flex flex-col gap-4 max-w-lg animate-slide-in-up">
+        <div className="card flex flex-col gap-4">
+          <span
+            style={{
+              fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+              fontSize: 18, color: 'var(--text)', letterSpacing: '1px',
+            }}
+          >
+            Select a Medical Facility
+          </span>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Choose a hospital to view its dashboard.
+          </p>
           <select
-            className="h-10 px-3 rounded-md bg-input border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary min-w-[200px]"
+            className="input-aes"
             onChange={e => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
           >
             <option value="" disabled>
-              {hospitals.length > 0 ? 'Select a hospital...' : 'No hospitals found — check backend connection'}
+              {hospitals.length > 0 ? 'Select a hospital...' : 'No hospitals found'}
             </option>
-            {hospitals.map(h => <option key={h.hospital_id} value={h.hospital_id}>{h.name}</option>)}
+            {hospitals.map(h => (
+              <option key={h.hospital_id} value={h.hospital_id}>{h.name}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -168,218 +217,369 @@ export default function HospitalDashboard() {
   }
 
   return (
-    <div className="space-y-4 animate-slide-in-up">
+    <div className="flex flex-col gap-5 animate-slide-in-up pb-10">
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      {/* ── Header ─────────────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-            <Building2 className="h-5 w-5 text-primary" />
+          <div
+            className="flex items-center justify-center rounded shrink-0"
+            style={{ width: 40, height: 40, background: 'rgba(22,163,74,0.12)', border: '1px solid rgba(22,163,74,0.3)' }}
+          >
+            <Building2 size={20} style={{ color: 'var(--safe)' }} />
           </div>
           <div>
-            <h2 className="text-lg font-bold">{hospital?.name ?? 'Hospital Dashboard'}</h2>
-            <p className="text-[11px] font-mono text-muted-foreground">{hospital?.address ?? '—'} · {hospital?.contact_number ?? '—'}</p>
+            <h1
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+                fontSize: 22, color: 'var(--text)', lineHeight: 1,
+              }}
+            >
+              {hospital?.name ?? 'Hospital Dashboard'}
+            </h1>
+            <p style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+              {hospital?.address ?? '—'}  ·  {hospital?.contact_number ?? '—'}
+            </p>
           </div>
         </div>
+
         <div className="flex items-center gap-3">
-          <span className={cn(
-            'flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider border',
-            isAvailable ? 'bg-green-500/20 text-green-400 border-green-500/40' : 'bg-red-500/20 text-red-400 border-red-500/40'
-          )}>
-            <span className={cn('w-1.5 h-1.5 rounded-full', isAvailable ? 'bg-green-400' : 'bg-red-400')} />
-            {isAvailable ? 'Available' : 'At Capacity'}
-          </span>
-          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
-            <Power className="h-3.5 w-3.5" />
-            <span className="uppercase tracking-wider">Readiness</span>
+          {isReadOnly && (
+            <span className="badge badge-pending">READ ONLY</span>
+          )}
+          <div
+            className="flex items-center gap-2 px-3 rounded"
+            style={{
+              height: 32,
+              background: isAvailable ? 'var(--safe-bg)' : 'var(--critical-bg)',
+              border: `1px solid ${isAvailable ? 'rgba(22,163,74,0.3)' : 'var(--critical-br)'}`,
+            }}
+          >
+            <span
+              className={isAvailable ? 'dot dot-safe' : 'dot dot-critical'}
+              style={isAvailable ? {} : { animation: 'pulse-dot 1.4s ease-in-out infinite' }}
+            />
+            <span
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+                fontSize: 12, letterSpacing: '1.5px', textTransform: 'uppercase',
+                color: isAvailable ? 'var(--safe)' : 'var(--critical)',
+              }}
+            >
+              {isAvailable ? 'Beds Available' : 'At Capacity'}
+            </span>
+          </div>
+          {/* Live bed count badge */}
+          <div
+            className="flex flex-col items-center justify-center rounded px-3 py-1"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          >
+            <span
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+                fontSize: 22, color: isAvailable ? 'var(--safe)' : 'var(--critical)', lineHeight: 1,
+              }}
+            >
+              {totalBeds}
+            </span>
+            <span className="section-label" style={{ fontSize: 9 }}>Total Beds</span>
           </div>
         </div>
       </div>
 
-      {/* ── Hospital Selector for Admins/Ambulance ── */}
+      {/* ── Hospital selector for admins ────────────────────────────────────── */}
       {currentUser?.role !== 'hospital' && (
-        <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
-          <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Viewing:</span>
+        <div
+          className="flex items-center gap-3 p-3 rounded"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+        >
+          <span className="section-label">Viewing:</span>
           <select
-            className="h-8 px-2 rounded-md bg-input border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="input-aes"
+            style={{ maxWidth: 240 }}
             onChange={e => setSelectedHospitalId(Number(e.target.value))}
             value={selectedHospitalId ?? ''}
           >
-            {hospitals.map(h => <option key={h.hospital_id} value={h.hospital_id}>{h.name}</option>)}
+            {hospitals.map(h => (
+              <option key={h.hospital_id} value={h.hospital_id}>{h.name}</option>
+            ))}
           </select>
-          {isReadOnly && <span className="ml-auto text-[10px] font-mono text-orange-400 border border-orange-400/30 bg-orange-400/10 px-2 py-0.5 rounded tracking-wider uppercase">Read Only</span>}
         </div>
       )}
 
-      {/* ── Capacity Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-              <Bed className="h-3.5 w-3.5" /> General Beds
-            </span>
-          </div>
-          <p className="text-3xl font-bold font-mono">{generalBeds}</p>
-          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">of {Math.round(generalBeds * 3.5)} available</p>
-          <CapacityBar value={generalBeds} max={Math.round(generalBeds * 3.5)} color="#f59e0b" />
-          <div className="flex items-center justify-center gap-3 mt-3">
-            <button onClick={() => handleBedChange(-1)} disabled={bedsUpdating || totalBeds <= 0 || isReadOnly}
-              className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 disabled:opacity-40 transition-colors">
-              <Minus className="h-3 w-3" />
-            </button>
-            <span className="text-sm font-mono w-8 text-center">{generalBeds}</span>
-            <button onClick={() => handleBedChange(1)} disabled={bedsUpdating || isReadOnly}
-              className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40">
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-              ❤️ ICU Beds
-            </span>
-          </div>
-          <p className="text-3xl font-bold font-mono">{icuBeds}</p>
-          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">of {Math.round(icuBeds * 4)} available</p>
-          <CapacityBar value={icuBeds} max={Math.round(icuBeds * 4)} color="#22c55e" />
-          <div className="flex items-center justify-center gap-3 mt-3">
-            <button disabled className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted-foreground opacity-40"><Minus className="h-3 w-3" /></button>
-            <span className="text-sm font-mono w-8 text-center">{icuBeds}</span>
-            <button disabled className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted-foreground opacity-40"><Plus className="h-3 w-3" /></button>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-              📞 Emergency Room
-            </span>
-          </div>
-          <p className="text-3xl font-bold font-mono">{erBeds}</p>
-          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">of {Math.round(erBeds * 10)} occupied</p>
-          <CapacityBar value={erBeds} max={Math.round(erBeds * 10)} color="#3b82f6" />
-          <p className="text-center text-[10px] text-muted-foreground font-mono mt-2">
-            {erBeds > 0 ? `${Math.round(erBeds / (erBeds * 10) * 100 * 10)}% Capacity` : '0% Capacity'}
-          </p>
-        </div>
+      {/* ── Stat Cards ─────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          label="Active Cases"
+          value={activeEmergencies.length}
+          icon={AlertTriangle}
+          accentColor={activeEmergencies.length > 0 ? 'red' : 'green'}
+          sub={activeEmergencies.length === 0 ? 'No active assignments' : undefined}
+        />
+        <StatCard
+          label="Resolved Today"
+          value={resolvedEmergencies.length}
+          icon={CheckCircle2}
+          accentColor="green"
+        />
+        <StatCard
+          label="Available Beds"
+          value={totalBeds}
+          icon={Bed}
+          accentColor={totalBeds > 10 ? 'green' : totalBeds > 0 ? 'amber' : 'red'}
+          sub={hospital?.max_capacity ? `Max ${hospital.max_capacity}` : undefined}
+        />
+        <StatCard
+          label="Network Position"
+          value={`#${hospital?.hospital_id ?? '—'}`}
+          icon={Activity}
+          accentColor="blue"
+          sub="AES Network"
+        />
       </div>
 
-      {/* ── Incoming Assignments ── */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-secondary/20">
-          <span className="text-xs font-mono font-bold uppercase tracking-wider">Incoming Assignments</span>
-          <div className="flex gap-0.5 rounded-md bg-secondary/50 p-0.5">
+      {/* ── Bed Management ─────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <BedCard
+          label="General Beds"
+          value={generalBeds}
+          max={Math.round(generalBeds * 3.5)}
+          color="#F59E0B"
+          onDec={() => handleBedChange(-1)}
+          onInc={() => handleBedChange(1)}
+          disabled={bedsUpdating || isReadOnly}
+          loading={bedsUpdating}
+        />
+        <BedCard
+          label="ICU Beds"
+          value={icuBeds}
+          max={Math.round(icuBeds * 4)}
+          color="var(--safe)"
+        />
+        <BedCard
+          label="Emergency Room"
+          value={erBeds}
+          max={Math.round(erBeds * 10)}
+          color="var(--info)"
+        />
+      </div>
+
+      {/* ── Assignments ─────────────────────────────────────────────────────────── */}
+      <div className="card p-0 overflow-hidden">
+        <div
+          className="flex items-center justify-between px-4 py-3 border-b"
+          style={{ background: 'var(--bg-surface)' }}
+        >
+          <span className="section-label">Incoming Assignments</span>
+          {/* Tab switcher */}
+          <div
+            className="flex gap-0.5 rounded p-0.5"
+            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}
+          >
             {(['active', 'resolved'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className={cn('px-3 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors',
-                  activeTab === tab ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'
-                )}>{tab} {tab === 'active' && activeEmergencies.length > 0 ? `(${activeEmergencies.length})` : ''}</button>
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="px-3 py-1 rounded transition-colors"
+                style={{
+                  fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+                  fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase',
+                  background: activeTab === tab ? 'var(--bg-raised)' : 'transparent',
+                  color: activeTab === tab ? 'var(--text)' : 'var(--text-dim)',
+                }}
+              >
+                {tab} {tab === 'active' && activeEmergencies.length > 0 ? `(${activeEmergencies.length})` : ''}
+              </button>
             ))}
           </div>
         </div>
 
+        {/* Active assignments */}
         {activeTab === 'active' && (
           <div>
             {activeEmergencies.length === 0 ? (
-              <div className="p-10 text-center text-muted-foreground text-sm font-mono flex flex-col items-center gap-2">
-                <CheckCircle2 className="h-6 w-6 text-green-400" />
-                No active emergencies
-              </div>
-            ) : activeEmergencies.map(e => (
-              <div key={e.emergency_id} className={cn('px-4 py-4 border-b border-border', e.severity === 'critical' && 'border-l-2 border-red-500')}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-2 flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-mono font-bold text-muted-foreground">ASG-{String(e.emergency_id).padStart(3, '0')}</span>
-                      <SeverityBadge severity={e.severity} />
-                      <StatusBadge status={e.status} />
-                      {e.acknowledged && <span className="text-[10px] font-mono text-green-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Accepted</span>}
-                    </div>
-                    <p className="text-sm font-medium capitalize">{e.emergency_type} Emergency</p>
-                    {e.accident_description && <p className="text-xs text-muted-foreground">{e.accident_description}</p>}
-                    <div className="flex gap-4 text-xs font-mono text-muted-foreground flex-wrap">
-                      {e.ambulance && (
-                        <span className="flex items-center gap-1">
-                          🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
-                          {hospital?.latitude && hospital?.longitude && e.ambulance?.latitude && e.ambulance?.longitude && (
-                            <span className="text-cyan-400 ml-1">
-                              · {haversineKm(hospital.latitude, hospital.longitude, e.ambulance.latitude, e.ambulance.longitude).toFixed(1)} km
+              <EmptyState icon={CheckCircle2} title="No Active Emergencies" message="All cases have been resolved or no assignments exist." />
+            ) : (
+              activeEmergencies.map(e => {
+                const isCrit = e.severity === 'critical';
+                return (
+                  <div
+                    key={e.emergency_id}
+                    className="px-4 py-4 border-b"
+                    style={{
+                      borderLeft: isCrit ? '3px solid var(--critical)' : undefined,
+                      background: isCrit ? 'var(--critical-bg)' : undefined,
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex flex-col gap-2 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            style={{
+                              fontFamily: "'Barlow Condensed', sans-serif",
+                              fontWeight: 700, fontSize: 14, color: 'var(--text)',
+                            }}
+                          >
+                            ASG-{String(e.emergency_id).padStart(3, '0')}
+                          </span>
+                          <SeverityBadge severity={e.severity} />
+                          <StatusBadge status={e.status} />
+                          {e.acknowledged && (
+                            <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--safe)' }}>
+                              <CheckCircle2 size={11} /> Accepted
                             </span>
                           )}
-                        </span>
+                          {e.is_overdue && (
+                            <span className="badge badge-critical flex items-center gap-1" style={{ fontSize: 9 }}>
+                              <AlertTriangle size={8} /> SLA BREACH
+                            </span>
+                          )}
+                        </div>
+
+                        <p
+                          className="capitalize"
+                          style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 500 }}
+                        >
+                          {e.emergency_type} Emergency
+                        </p>
+
+                        {e.accident_description && (
+                          <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>{e.accident_description}</p>
+                        )}
+
+                        <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-dim)' }}>
+                          {e.ambulance && (
+                            <span className="flex items-center gap-1">
+                              🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
+                              {hospital?.latitude && hospital.longitude && e.ambulance?.latitude && e.ambulance?.longitude && (
+                                <span style={{ color: '#06B6D4', marginLeft: 4 }}>
+                                  · {haversineKm(hospital.latitude, hospital.longitude, e.ambulance.latitude, e.ambulance.longitude).toFixed(1)} km
+                                </span>
+                              )}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Clock size={11} />
+                            {e.created_at ? new Date(e.created_at).toLocaleTimeString('en-IN') : '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!e.acknowledged && !isReadOnly && (
+                        <button
+                          onClick={() => handleAcknowledge(e.emergency_id)}
+                          disabled={acknowledging === e.emergency_id}
+                          className="btn-base shrink-0 flex items-center gap-1.5"
+                          style={{
+                            height: 36, padding: '0 14px', fontSize: 12,
+                            background: 'var(--safe)', color: '#fff',
+                            borderRadius: 'var(--radius)', border: 'none',
+                          }}
+                        >
+                          {acknowledging === e.emergency_id
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <><CheckCircle2 size={13} /> Accept</>
+                          }
+                        </button>
                       )}
-                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {e.created_at ? new Date(e.created_at).toLocaleTimeString() : '—'}</span>
-                      {e.is_overdue && <span className="flex items-center gap-1 text-red-400"><AlertTriangle className="h-3 w-3" /> SLA Breached</span>}
                     </div>
                   </div>
-                  {!e.acknowledged && !isReadOnly && (
-                    <Button size="sm" onClick={() => handleAcknowledge(e.emergency_id)} disabled={acknowledging === e.emergency_id}
-                      className="bg-green-600 hover:bg-green-500 text-white text-xs shrink-0">
-                      {acknowledging === e.emergency_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />Accept</>}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
+                );
+              })
+            )}
           </div>
         )}
 
+        {/* Resolved assignments */}
         {activeTab === 'resolved' && (
           <div>
             {resolvedEmergencies.length === 0 ? (
-              <div className="p-10 text-center text-muted-foreground text-sm font-mono">No resolved emergencies</div>
-            ) : resolvedEmergencies.map(e => (
-              <div key={e.emergency_id} className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-muted-foreground">ASG-{String(e.emergency_id).padStart(3, '0')}</span>
-                    <SeverityBadge severity={e.severity} />
-                    <StatusBadge status={e.status} />
+              <EmptyState icon={Activity} title="No Resolved Cases" message="Completed and cancelled cases appear here." />
+            ) : (
+              resolvedEmergencies.map(e => (
+                <div
+                  key={e.emergency_id}
+                  className="px-4 py-3 border-b flex items-center justify-between"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                >
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        style={{
+                          fontFamily: "'Barlow Condensed', sans-serif",
+                          fontWeight: 700, fontSize: 14, color: 'var(--text)',
+                        }}
+                      >
+                        ASG-{String(e.emergency_id).padStart(3, '0')}
+                      </span>
+                      <SeverityBadge severity={e.severity} />
+                      <StatusBadge status={e.status} />
+                    </div>
+                    <p className="capitalize text-sm" style={{ color: 'var(--text-muted)' }}>
+                      {e.emergency_type} Emergency
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                      {e.created_at ? new Date(e.created_at).toLocaleString('en-IN') : '—'}
+                    </p>
                   </div>
-                  <p className="text-sm capitalize">{e.emergency_type} Emergency</p>
-                  <p className="text-[10px] font-mono text-muted-foreground">{e.created_at ? new Date(e.created_at).toLocaleString() : '—'}</p>
+                  {e.ambulance && (
+                    <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                      🚑 {e.ambulance.vehicle_number}
+                    </span>
+                  )}
                 </div>
-                {e.ambulance && <span className="text-xs font-mono text-muted-foreground">🚑 {e.ambulance.vehicle_number}</span>}
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
       </div>
 
-      {/* ── Specialties ── */}
+      {/* ── Specialities ────────────────────────────────────────────────────────── */}
       {hospital && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-3">Specialties</span>
+        <div className="card flex flex-col gap-3">
+          <span className="section-label">Speciality Matrix</span>
           <div className="flex flex-wrap gap-2">
             {Array.isArray(hospital.specialities) && hospital.specialities.length > 0
               ? hospital.specialities.map(s => (
-                <span key={s} className="px-3 py-1 rounded-md bg-secondary text-xs font-mono text-secondary-foreground capitalize">{s}</span>
+                <span
+                  key={s}
+                  className="badge"
+                  style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text)', textTransform: 'capitalize', letterSpacing: '0.5px' }}
+                >
+                  {s}
+                </span>
               ))
-              : <span className="text-xs text-muted-foreground">No specialities listed</span>}
+              : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>No specialities declared</span>
+            }
           </div>
         </div>
       )}
 
-      {/* ── Live Tracking Map ── */}
+      {/* ── Live Map ─────────────────────────────────────────────────────────────── */}
       {hospital && (
-        <div className="rounded-lg border border-border overflow-hidden bg-card mt-4">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/20">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-primary" /> Tracking Map
-              {/* ✅ Live pulse indicator */}
-              <span className="relative flex h-2 w-2 ml-1">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+        <div className="card p-0 overflow-hidden">
+          <div
+            className="flex items-center justify-between px-4 py-3 border-b"
+            style={{ background: 'var(--bg-surface)' }}
+          >
+            <span className="section-label flex items-center gap-2">
+              <MapPin size={12} /> Live Tracking
+              <span className="relative flex" style={{ width: 8, height: 8, marginLeft: 4 }}>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full" style={{ background: 'var(--safe)', opacity: 0.6 }} />
+                <span className="relative inline-flex rounded-full" style={{ width: 8, height: 8, background: 'var(--safe)' }} />
               </span>
             </span>
-            <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-1 rounded" style={{ background: '#f97316' }} /> 🚑→🚨</span>
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-1 rounded" style={{ background: '#22c55e' }} /> 🚨→🏥</span>
+            <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--text-dim)' }}>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-1 rounded" style={{ background: '#f97316' }} />
+                Ambulance → Incident
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-1 rounded" style={{ background: 'var(--safe)' }} />
+                Incident → Hospital
+              </span>
             </div>
           </div>
-
           <LiveMap
             hospitals={[hospital]}
             emergencies={activeEmergencies.map(e => ({
