@@ -1,7 +1,7 @@
 import { io, Socket } from "socket.io-client";
 
 // the same base URL used by fetch; use env var so we can override in prod
-const BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
 // ── Singleton socket with built-in exponential-backoff reconnection ─────────
 export const socket: Socket = io(BASE, {
