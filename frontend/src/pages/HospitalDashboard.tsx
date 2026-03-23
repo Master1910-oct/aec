@@ -29,25 +29,28 @@ function BedCard({
   onDec?: () => void; onInc?: () => void; disabled?: boolean; loading?: boolean;
 }) {
   return (
-    <div className="card flex flex-col gap-2">
-      <span className="section-label">{label}</span>
-      <p className="stat-value" style={{ color }}>{value}</p>
+    // Mobile: compact padding. Desktop: full size.
+    <div className="card flex flex-col gap-2 p-3 md:p-4">
+      <span className="section-label text-[10px] md:text-[11px]">{label}</span>
+      {/* Mobile: text-2xl, Desktop: stat-value (text-4xl) */}
+      <p className="font-['Barlow_Condensed',sans-serif] font-bold leading-none text-2xl md:text-4xl" style={{ color }}>{value}</p>
       <p className="text-xs" style={{ color: 'var(--text-dim)' }}>of {max} capacity</p>
       <CapacityBar value={value} max={max} color={color} />
       {(onDec || onInc) && (
         <div className="flex items-center justify-center gap-3 mt-1">
+          {/* Touch targets: min 44×44px on mobile */}
           <button
             onClick={onDec}
             disabled={disabled || value <= 0}
             className="flex items-center justify-center rounded transition-colors"
             style={{
-              width: 30, height: 30, border: '1px solid var(--border)',
+              minWidth: 44, minHeight: 44, border: '1px solid var(--border)',
               color: 'var(--text-dim)', background: 'var(--bg-raised)',
             }}
           >
-            {loading ? <Loader2 size={12} className="animate-spin" /> : <Minus size={12} />}
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Minus size={14} />}
           </button>
-          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16, minWidth: 28, textAlign: 'center' }}>
+          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 18, minWidth: 32, textAlign: 'center' }}>
             {value}
           </span>
           <button
@@ -55,11 +58,11 @@ function BedCard({
             disabled={disabled}
             className="flex items-center justify-center rounded transition-colors"
             style={{
-              width: 30, height: 30, border: '1px solid var(--border)',
+              minWidth: 44, minHeight: 44, border: '1px solid var(--border)',
               color: 'var(--text-dim)', background: 'var(--bg-raised)',
             }}
           >
-            <Plus size={12} />
+            <Plus size={14} />
           </button>
         </div>
       )}
@@ -307,8 +310,8 @@ export default function HospitalDashboard() {
         </div>
       )}
 
-      {/* ── Stat Cards ─────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* ── Stat Cards — 2-col mobile, 4-col md+ ───────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <StatCard
           label="Active Cases"
           value={activeEmergencies.length}
@@ -338,8 +341,8 @@ export default function HospitalDashboard() {
         />
       </div>
 
-      {/* ── Bed Management ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* ── Bed Management — single col mobile, 3-col md+ ──────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
         <BedCard
           label="General Beds"
           value={generalBeds}
@@ -411,7 +414,8 @@ export default function HospitalDashboard() {
                       background: isCrit ? 'var(--critical-bg)' : undefined,
                     }}
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    {/* Mobile: stack info then button; sm+: side by side */}
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
                       <div className="flex flex-col gap-2 flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span
@@ -466,12 +470,13 @@ export default function HospitalDashboard() {
                       </div>
 
                       {!e.acknowledged && !isReadOnly && (
+                        /* Mobile: full-width button stacked below info; sm+: inline */
                         <button
                           onClick={() => handleAcknowledge(e.emergency_id)}
                           disabled={acknowledging === e.emergency_id}
-                          className="btn-base shrink-0 flex items-center gap-1.5"
+                          className="btn-base w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 mt-2 sm:mt-0"
                           style={{
-                            height: 36, padding: '0 14px', fontSize: 12,
+                            minHeight: 48, padding: '0 14px', fontSize: 13,
                             background: 'var(--safe)', color: '#fff',
                             borderRadius: 'var(--radius)', border: 'none',
                           }}
@@ -605,7 +610,7 @@ export default function HospitalDashboard() {
                 longitude: e.ambulance!.longitude!,
                 status: 'ON_CALL' as const,
               }))}
-            className="w-full h-[380px]"
+            className="w-full h-[45vh] md:h-[380px]"
           />
         </div>
       )}

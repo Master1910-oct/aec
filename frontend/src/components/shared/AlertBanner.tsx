@@ -6,8 +6,9 @@ interface AlertBannerProps {
 
 export function AlertBanner({ message, time, onDismiss }: AlertBannerProps) {
   return (
+    /* Mobile: flex-col (dot+text row + dismiss below), sm+: flex-row side-by-side */
     <div
-      className="flex items-center justify-between gap-3 px-4 py-3 rounded-md"
+      className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 px-4 py-3 rounded-md"
       style={{
         background: 'var(--critical-bg)',
         border: '1px solid var(--critical-br)',
@@ -40,10 +41,11 @@ export function AlertBanner({ message, time, onDismiss }: AlertBannerProps) {
         )}
       </div>
 
+      {/* Dismiss — min 44px touch on mobile */}
       <button
         onClick={onDismiss}
-        className="shrink-0 flex items-center justify-center w-6 h-6 rounded transition-colors"
-        style={{ color: 'var(--text-dim)' }}
+        className="self-end sm:self-auto shrink-0 flex items-center justify-center rounded transition-colors"
+        style={{ minWidth: 44, minHeight: 44, color: 'var(--text-dim)' }}
         onMouseEnter={e => (e.currentTarget.style.color = 'var(--critical)')}
         onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
         title="Dismiss"
@@ -55,3 +57,4 @@ export function AlertBanner({ message, time, onDismiss }: AlertBannerProps) {
     </div>
   );
 }
+

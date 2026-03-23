@@ -9,6 +9,9 @@ import LiveMap from '@/components/map/LiveMap';
 import { SeverityBadge } from '@/components/shared/SeverityBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { saveLocation, getPendingCount, saveEmergencyOffline, getPendingEmergencyCount } from '@/lib/offlineStorage';
+import { useSyncManager } from '@/hooks/useSyncManager';
+import { toast } from 'sonner';
 
 // ── Tables ────────────────────────────────────────────────────────────────────
 const EMERGENCY_TYPES = [
@@ -40,20 +43,22 @@ export default function AmbulancePanel() {
   const {
     currentUser, submitEmergency, updateEmergencyStatus,
     updateAmbulanceLocation, emergencies, fetchEmergencies,
+    isOffline, pendingSyncCount, isSyncing, pendingEmergencyCount,
+    setOfflineStatus, setSyncCount, setPendingEmergencyCount,
   } = useStore();
 
-  const [description,    setDescription]    = useState('');
-  const [emergencyType,  setEmergencyType]  = useState<string>('trauma');
-  const [severity,       setSeverity]       = useState<string>('medium');
-  const [lat,            setLat]            = useState('');
-  const [lon,            setLon]            = useState('');
-  const [gpsLoading,     setGpsLoading]     = useState(false);
-  const [submitting,     setSubmitting]     = useState(false);
-  const [formError,      setFormError]      = useState('');
-  const [submitted,      setSubmitted]      = useState<BackendEmergency | null>(null);
+  const [description, setDescription] = useState('');
+  const [emergencyType, setEmergencyType] = useState<string>('trauma');
+  const [severity, setSeverity] = useState<string>('medium');
+  const [lat, setLat] = useState('');
+  const [lon, setLon] = useState('');
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [submitted, setSubmitted] = useState<BackendEmergency | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
-  const [myAmbulance,    setMyAmbulance]    = useState<any>(null);
+  const [myAmbulance, setMyAmbulance] = useState<any>(null);
 
   const { ambulances, fetchAmbulances, fetchMyAmbulance } = useStore();
   const [selectedAmbulanceId, setSelectedAmbulanceId] = useState<number | null>(null);
@@ -63,6 +68,10 @@ export default function AmbulancePanel() {
   const isReadOnly =
     currentUser?.role === 'hospital' ||
     (currentUser?.role === 'admin' && currentUser.entity_id !== effectiveAmbulanceId);
+
+  // Offline GPS sync manager
+  const ambulanceId = (effectiveAmbulanceId ?? 0) as number;
+  const { triggerSync } = useSyncManager(ambulanceId);
 
   const myActiveEmergency =
     submitted ??
@@ -111,42 +120,108 @@ export default function AmbulancePanel() {
     fetchEmergencies();
   }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies]);
 
+  // ── Offline / online detection ────────────────────────────────────────────
+  useEffect(() => {
+    // Initialize offline status based on navigator.onLine (with fallback for older browsers)
+    const isOnline = typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
+    if (!isOnline) {
+      setOfflineStatus(true);
+      getPendingCount(ambulanceId).then(count => setSyncCount(count));
+    }
+
+    const goOffline = async () => {
+      setOfflineStatus(true);
+      const count = await getPendingCount(ambulanceId);
+      setSyncCount(count);
+    };
+    const goOnline = () => {
+      setOfflineStatus(false);
+      triggerSync();
+    };
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, [ambulanceId, setOfflineStatus, setSyncCount, triggerSync]);
+
   const currentAmbulance =
     currentUser?.role === 'ambulance'
       ? (myAmbulance || { ambulance_id: currentUser.entity_id, driver_name: currentUser.name, vehicle_number: `Unit #${currentUser.entity_id}` })
       : ambulances.find(a => a.ambulance_id === effectiveAmbulanceId);
 
-  // Periodic GPS broadcast
+  // Periodic GPS broadcast (offline-first)
   useEffect(() => {
     if (isReadOnly || !effectiveAmbulanceId || !lat || !lon) return;
     const activeStatuses = ['allocated', 'en_route', 'arrived'];
     if (myActiveEmergency && activeStatuses.includes(myActiveEmergency.status)) {
       setIsBroadcasting(true);
-      const interval = setInterval(() => {
-        updateAmbulanceLocation(parseFloat(lat), parseFloat(lon));
+      const interval = setInterval(async () => {
+        const parsedLat = parseFloat(lat);
+        const parsedLon = parseFloat(lon);
+        if (isOffline) {
+          // Device is offline — save to IndexedDB instead
+          await saveLocation(ambulanceId, parsedLat, parsedLon);
+          setSyncCount(await getPendingCount(ambulanceId));
+        } else {
+          await updateAmbulanceLocation(parsedLat, parsedLon); // existing action, unchanged
+        }
       }, 12000);
       return () => { clearInterval(interval); setIsBroadcasting(false); };
     } else {
       setIsBroadcasting(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myActiveEmergency?.status, lat, lon, isReadOnly, effectiveAmbulanceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myActiveEmergency?.status, lat, lon, isReadOnly, effectiveAmbulanceId, isOffline]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
     if (!description.trim()) { setFormError('Please provide a description'); return; }
-    if (!lat || !lon)        { setFormError('Location is required. Use GPS or enter coordinates.'); return; }
-    const latitude  = parseFloat(lat);
+    if (!lat || !lon) { setFormError('Location is required. Use GPS or enter coordinates.'); return; }
+    const latitude = parseFloat(lat);
     const longitude = parseFloat(lon);
-    if (isNaN(latitude)  || latitude  < -90  || latitude  > 90)  { setFormError('Invalid latitude');  return; }
-    if (isNaN(longitude) || longitude < -180 || longitude > 180)  { setFormError('Invalid longitude'); return; }
+    if (isNaN(latitude) || latitude < -90 || latitude > 90) { setFormError('Invalid latitude'); return; }
+    if (isNaN(longitude) || longitude < -180 || longitude > 180) { setFormError('Invalid longitude'); return; }
+    
+    if (isOffline) {
+      await saveEmergencyOffline(ambulanceId, {
+        ambulance_id: ambulanceId,
+        accident_description: description,
+        emergency_type: emergencyType,
+        severity,
+        latitude,
+        longitude
+      });
+      const count = await getPendingEmergencyCount(ambulanceId);
+      setPendingEmergencyCount(count);
+      toast.warning(
+        'No connection. Emergency saved — will auto-submit when online.',
+        { duration: 5000 }
+      );
+      // Clear form
+      setDescription('');
+      return; 
+    }
+
     setSubmitting(true);
     try {
       const result = await submitEmergency({ accident_description: description, emergency_type: emergencyType, severity, latitude, longitude });
       setSubmitted(result);
-    } catch (err: any) { setFormError(err.message || 'Failed to submit emergency'); }
-    finally { setSubmitting(false); }
+    } catch (error: any) {
+      if (!navigator.onLine || isOffline) {
+        toast.warning(
+          "You're offline. Emergency saved locally.",
+          { duration: 5000 }
+        );
+      } else {
+        toast.error(
+          "Submission failed. Check connection and try again.",
+          { duration: 4000 }
+        );
+      }
+    } finally { setSubmitting(false); }
   };
 
   const handleStatusUpdate = async (newStatus: string) => {
@@ -189,9 +264,18 @@ export default function AmbulancePanel() {
 
   const isCritical = myActiveEmergency?.severity === 'critical';
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  /*
+   * AmbulancePanel — Mobile-first (primary device: phone on dashboard)
+   *
+   * Breakpoints:
+   *   Mobile  <640px  — single column, 52px buttons, 40vh map, large GPS font
+   *   Tablet  640px+  — side-by-side assignment+map, 2-col form
+   *   Laptop  1024px+ — 2-col permanent layout (info left, map right)
+   *
+   * Test: 375, 390, 768, 1024, 1280, 1920px
+   */
   return (
-    <div className="flex flex-col gap-5 animate-slide-in-up pb-10">
+    <div className="flex flex-col gap-4 animate-slide-in-up pb-10">
 
       {/* ── Ambulance Selector (non-ambulance roles) ────────────────────────── */}
       {currentUser?.role !== 'ambulance' && (
@@ -224,10 +308,13 @@ export default function AmbulancePanel() {
         <EmptyState icon={AmbulanceIcon} title="No Unit Selected" message="Select an ambulance unit above to view its panel." />
       ) : (
         <>
-          {/* ── Status Bar ─────────────────────────────────────────────────── */}
+          {/* ── Status Bar — full-width, min 52px height for mobile ── */}
           <div
-            className="flex items-center flex-wrap gap-4 px-4 py-3 rounded"
+            className="flex flex-wrap items-center gap-3 px-4 rounded"
             style={{
+              minHeight: 52,
+              paddingTop: 10,
+              paddingBottom: 10,
               background: myActiveEmergency
                 ? (isCritical ? 'var(--critical-bg)' : 'rgba(29,111,232,0.07)')
                 : 'var(--safe-bg)',
@@ -236,13 +323,14 @@ export default function AmbulancePanel() {
                 : 'rgba(22,163,74,0.3)'}`,
             }}
           >
-            {/* Unit identity */}
+            {/* Unit identity — larger font for driver readability */}
             <div className="flex items-center gap-2">
-              <AmbulanceIcon size={16} style={{ color: myActiveEmergency ? (isCritical ? 'var(--critical)' : 'var(--info)') : 'var(--safe)', flexShrink: 0 }} />
+              <AmbulanceIcon size={18} style={{ color: myActiveEmergency ? (isCritical ? 'var(--critical)' : 'var(--info)') : 'var(--safe)', flexShrink: 0 }} />
               <span
                 style={{
                   fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
-                  fontSize: 16, letterSpacing: '1px',
+                  fontSize: 18,
+                  letterSpacing: '1px',
                   color: myActiveEmergency ? (isCritical ? 'var(--critical)' : 'var(--text)') : 'var(--safe)',
                 }}
               >
@@ -262,8 +350,18 @@ export default function AmbulancePanel() {
               <span className="badge badge-available">AVAILABLE</span>
             )}
 
-            {/* GPS broadcast indicator */}
-            {isBroadcasting && (
+            {/* GPS broadcast / connectivity status badge */}
+            {isSyncing ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30" style={{ minHeight: 44, alignItems: 'center' }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                SYNCING {pendingSyncCount} records...
+              </span>
+            ) : isOffline ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30" style={{ minHeight: 44, alignItems: 'center' }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                OFFLINE — GPS stored locally ({pendingSyncCount} records)
+              </span>
+            ) : isBroadcasting ? (
               <span
                 className="flex items-center gap-1.5 animate-pulse"
                 style={{
@@ -276,15 +374,21 @@ export default function AmbulancePanel() {
                 <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--critical)' }} />
                 Transmitting
               </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold bg-green-500/10 text-green-400 border border-green-500/30" style={{ minHeight: 44, alignItems: 'center' }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                Live
+              </span>
             )}
 
-            {/* GPS coordinates */}
+            {/* GPS coordinates — large monospace on mobile for driver readability */}
             <div className="flex items-center gap-2 ml-auto">
               <Radio size={12} style={{ color: lat ? 'var(--safe)' : 'var(--text-dim)' }} />
               <span
                 style={{
-                  fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
-                  fontSize: 12, letterSpacing: '1px',
+                  fontFamily: "'Barlow Condensed', monospace", fontWeight: 700,
+                  fontSize: 14,
+                  letterSpacing: '0.5px',
                   color: lat ? 'var(--safe)' : 'var(--text-dim)',
                 }}
               >
@@ -296,7 +400,7 @@ export default function AmbulancePanel() {
                 <button
                   onClick={detectGPS}
                   className="badge badge-info"
-                  style={{ cursor: 'pointer', fontSize: 10, border: '1px solid rgba(29,111,232,0.3)' }}
+                  style={{ cursor: 'pointer', fontSize: 10, border: '1px solid rgba(29,111,232,0.3)', minHeight: 44, minWidth: 44 }}
                 >
                   {gpsLoading ? 'LOCKING...' : 'LOCK GPS'}
                 </button>
@@ -304,167 +408,171 @@ export default function AmbulancePanel() {
             </div>
           </div>
 
-          {/* ── Active Assignment Card ─────────────────────────────────────── */}
-          {myActiveEmergency && (
-            <div
-              className="card p-0 overflow-hidden"
-              style={{ borderTop: `3px solid ${isCritical ? 'var(--critical)' : 'var(--info)'}` }}
-            >
-              <div
-                className="flex items-center justify-between px-4 py-3 border-b"
-                style={{ background: isCritical ? 'var(--critical-bg)' : 'rgba(29,111,232,0.07)' }}
-              >
-                <span
-                  style={{
-                    fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
-                    fontSize: 14, letterSpacing: '2px', textTransform: 'uppercase',
-                    color: isCritical ? 'var(--critical)' : 'var(--info)',
-                  }}
-                >
-                  Active Assignment — ASG-{String(myActiveEmergency.emergency_id).padStart(3, '0')}
-                </span>
-                <SeverityBadge severity={myActiveEmergency.severity} />
-              </div>
+          {/* ── lg two-column wrapper: assignment left, map right on lg+ ── */}
+          <div className="flex flex-col lg:flex-row lg:items-start lg:gap-5">
 
-              <div className="p-4 flex flex-col gap-4" style={{ background: 'var(--bg-surface)' }}>
-                {/* 4-column stats row */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Assignment', value: `ASG-${String(myActiveEmergency.emergency_id).padStart(3, '0')}` },
-                    { label: 'ETA',        value: etaMin != null ? `${etaMin} min` : '— min' },
-                    { label: 'Distance',   value: distanceKm != null ? `${distanceKm.toFixed(1)} km` : '— km' },
-                    { label: 'Hospital Ack', value: myActiveEmergency.acknowledged ? 'Accepted' : 'Pending' },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex flex-col gap-1">
-                      <span className="section-label" style={{ fontSize: 9 }}>{label}</span>
-                      <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>
-                        {value}
+            {/* ── Active Assignment Card (left col on lg+) ── */}
+            {myActiveEmergency && (
+              <div
+                className="card p-0 overflow-hidden lg:flex-1"
+                style={{ borderTop: `3px solid ${isCritical ? 'var(--critical)' : 'var(--info)'}` }}
+              >
+                <div
+                  className="flex items-center justify-between px-4 py-3 border-b"
+                  style={{ background: isCritical ? 'var(--critical-bg)' : 'rgba(29,111,232,0.07)' }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+                      fontSize: 14, letterSpacing: '2px', textTransform: 'uppercase',
+                      color: isCritical ? 'var(--critical)' : 'var(--info)',
+                    }}
+                  >
+                    Active Assignment — ASG-{String(myActiveEmergency.emergency_id).padStart(3, '0')}
+                  </span>
+                  <SeverityBadge severity={myActiveEmergency.severity} />
+                </div>
+
+                <div className="p-4 flex flex-col gap-4" style={{ background: 'var(--bg-surface)' }}>
+                  {/* 4-column stats row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {[
+                      { label: 'Assignment', value: `ASG-${String(myActiveEmergency.emergency_id).padStart(3, '0')}` },
+                      { label: 'ETA', value: etaMin != null ? `${etaMin} min` : '— min' },
+                      { label: 'Distance', value: distanceKm != null ? `${distanceKm.toFixed(1)} km` : '— km' },
+                      { label: 'Hospital Ack', value: myActiveEmergency.acknowledged ? 'Accepted' : 'Pending' },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex flex-col gap-1">
+                        <span className="section-label" style={{ fontSize: 9 }}>{label}</span>
+                        <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>
+                          {value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Patient info */}
+                  <div
+                    className="rounded p-3 grid grid-cols-2 sm:grid-cols-4 gap-4"
+                    style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="section-label" style={{ fontSize: 9 }}>Condition</span>
+                      <span className="capitalize text-sm" style={{ color: 'var(--text-muted)' }}>
+                        {TYPE_LABELS[myActiveEmergency.emergency_type] ?? myActiveEmergency.emergency_type}
                       </span>
                     </div>
-                  ))}
-                </div>
-
-                {/* Patient info */}
-                <div
-                  className="rounded p-3 grid grid-cols-2 sm:grid-cols-4 gap-4"
-                  style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}
-                >
-                  <div className="flex flex-col gap-1">
-                    <span className="section-label" style={{ fontSize: 9 }}>Condition</span>
-                    <span className="capitalize text-sm" style={{ color: 'var(--text-muted)' }}>
-                      {TYPE_LABELS[myActiveEmergency.emergency_type] ?? myActiveEmergency.emergency_type}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1 sm:col-span-2">
-                    <span className="section-label" style={{ fontSize: 9 }}>Description</span>
-                    <span className="text-xs line-clamp-3" style={{ color: 'var(--text-dim)' }}>
-                      {myActiveEmergency.accident_description || '—'}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="section-label" style={{ fontSize: 9 }}>Severity</span>
-                    <SeverityBadge severity={myActiveEmergency.severity} />
-                  </div>
-                </div>
-
-                {/* Hospital destination */}
-                {myActiveEmergency.hospital && (
-                  <div
-                    className="flex items-center gap-3 rounded p-3"
-                    style={{ background: 'var(--safe-bg)', border: '1px solid rgba(22,163,74,0.3)' }}
-                  >
-                    <Navigation size={16} style={{ color: 'var(--safe)', flexShrink: 0 }} />
-                    <div>
-                      <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>
-                        {myActiveEmergency.hospital.name}
-                      </p>
-                      <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-                        {myActiveEmergency.hospital.address}
-                      </p>
+                    <div className="flex flex-col gap-1 sm:col-span-2">
+                      <span className="section-label" style={{ fontSize: 9 }}>Description</span>
+                      <span className="text-xs line-clamp-3" style={{ color: 'var(--text-dim)' }}>
+                        {myActiveEmergency.accident_description || '—'}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="section-label" style={{ fontSize: 9 }}>Severity</span>
+                      <SeverityBadge severity={myActiveEmergency.severity} />
                     </div>
                   </div>
-                )}
 
-                {/* SLA breach */}
-                {myActiveEmergency.is_overdue && (
-                  <div
-                    className="flex items-center gap-2 p-3 rounded animate-pulse"
-                    style={{ background: 'var(--critical-bg)', border: '1px solid var(--critical-br)', color: 'var(--critical)' }}
-                  >
-                    <AlertTriangle size={16} />
-                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '1.5px' }}>
-                      SLA Deadline Breached
-                    </span>
-                  </div>
-                )}
-
-                {/* Status update button */}
-                {!isReadOnly &&
-                  !['completed', 'cancelled', 'escalated'].includes(myActiveEmergency.status) &&
-                  STATUS_NEXT[myActiveEmergency.status] && (
-                    <button
-                      onClick={() => handleStatusUpdate(STATUS_NEXT[myActiveEmergency.status]!)}
-                      disabled={statusUpdating}
-                      className="btn-base btn-primary w-full"
-                      style={{ height: 52, fontSize: 14, letterSpacing: '2px' }}
+                  {/* Hospital destination */}
+                  {myActiveEmergency.hospital && (
+                    <div
+                      className="flex items-center gap-3 rounded p-3"
+                      style={{ background: 'var(--safe-bg)', border: '1px solid rgba(22,163,74,0.3)' }}
                     >
-                      {statusUpdating
-                        ? <Loader2 size={18} className="animate-spin" />
-                        : STATUS_LABEL[myActiveEmergency.status]
-                      }
-                    </button>
+                      <Navigation size={16} style={{ color: 'var(--safe)', flexShrink: 0 }} />
+                      <div>
+                        <p style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>
+                          {myActiveEmergency.hospital.name}
+                        </p>
+                        <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                          {myActiveEmergency.hospital.address}
+                        </p>
+                      </div>
+                    </div>
                   )}
 
-                {myActiveEmergency.status === 'completed' && (
-                  <div className="flex items-center justify-center gap-2" style={{ color: 'var(--safe)' }}>
-                    <CheckCircle2 size={16} />
-                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 14 }}>
-                      Emergency Completed — Ready for Next Dispatch
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+                  {/* SLA breach */}
+                  {myActiveEmergency.is_overdue && (
+                    <div
+                      className="flex items-center gap-2 p-3 rounded animate-pulse"
+                      style={{ background: 'var(--critical-bg)', border: '1px solid var(--critical-br)', color: 'var(--critical)' }}
+                    >
+                      <AlertTriangle size={16} />
+                      <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '1.5px' }}>
+                        SLA Deadline Breached
+                      </span>
+                    </div>
+                  )}
 
-          {/* ── Navigation Map ─────────────────────────────────────────────── */}
-          {myActiveEmergency && (
-            <div className="card p-0 overflow-hidden">
-              <div
-                className="flex items-center justify-between px-4 py-3 border-b"
-                style={{ background: 'var(--bg-surface)' }}
-              >
-                <span className="section-label flex items-center gap-2">
-                  <MapPin size={12} /> Navigation Map
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="relative flex" style={{ width: 8, height: 8 }}>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full" style={{ background: 'var(--safe)', opacity: 0.6 }} />
-                    <span className="relative inline-flex rounded-full" style={{ width: 8, height: 8, background: 'var(--safe)' }} />
-                  </span>
-                  <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: '1.5px', color: 'var(--safe)', textTransform: 'uppercase' }}>
-                    GPS Lock
-                  </span>
+                  {/* Status update button — full width, 52px min-height for touch */}
+                  {!isReadOnly &&
+                    !['completed', 'cancelled', 'escalated'].includes(myActiveEmergency.status) &&
+                    STATUS_NEXT[myActiveEmergency.status] && (
+                      <button
+                        onClick={() => handleStatusUpdate(STATUS_NEXT[myActiveEmergency.status]!)}
+                        disabled={statusUpdating}
+                        className="btn-base btn-primary w-full"
+                        style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}
+                      >
+                        {statusUpdating
+                          ? <Loader2 size={18} className="animate-spin" />
+                          : STATUS_LABEL[myActiveEmergency.status]
+                        }
+                      </button>
+                    )}
+
+                  {myActiveEmergency.status === 'completed' && (
+                    <div className="flex items-center justify-center gap-2" style={{ color: 'var(--safe)' }}>
+                      <CheckCircle2 size={16} />
+                      <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 14 }}>
+                        Emergency Completed — Ready for Next Dispatch
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <LiveMap
-                ambulances={mapAmbulances}
-                hospitals={mapHospitals}
-                emergencies={mapEmergencies}
-                className="w-full h-[280px] sm:h-[340px]"
-              />
-              <div
-                className="flex items-center gap-5 px-4 py-2 border-t text-xs"
-                style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)', borderColor: 'var(--border)' }}
-              >
-                <span>🚑 Your Location</span>
-                <span>🚨 Emergency Scene</span>
-                <span>🏥 Destination Hospital</span>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* ── No Active Assignment — Submit Form ─────────────────────────── */}
+            {/* ── Navigation Map (right col on lg+) ── */}
+            {myActiveEmergency && (
+              <div className="card p-0 overflow-hidden lg:flex-1">
+                <div
+                  className="flex items-center justify-between px-4 py-3 border-b"
+                  style={{ background: 'var(--bg-surface)' }}
+                >
+                  <span className="section-label flex items-center gap-2">
+                    <MapPin size={12} /> Navigation Map
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex" style={{ width: 8, height: 8 }}>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full" style={{ background: 'var(--safe)', opacity: 0.6 }} />
+                      <span className="relative inline-flex rounded-full" style={{ width: 8, height: 8, background: 'var(--safe)' }} />
+                    </span>
+                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: '1.5px', color: 'var(--safe)', textTransform: 'uppercase' }}>
+                      GPS Lock
+                    </span>
+                  </div>
+                </div>
+                <LiveMap
+                  ambulances={mapAmbulances}
+                  hospitals={mapHospitals}
+                  emergencies={mapEmergencies}
+                  className="w-full h-[40vh] sm:h-[340px] lg:h-[420px]"
+                />
+                <div
+                  className="flex items-center gap-5 px-4 py-2 border-t text-xs"
+                  style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)', borderColor: 'var(--border)' }}
+                >
+                  <span>🚑 Your Location</span>
+                  <span>🚨 Emergency Scene</span>
+                  <span>🏥 Destination Hospital</span>
+                </div>
+              </div>
+            )}
+          </div>{/* /lg two-col wrapper: assignment left + map right */}
+
+          {/* ── No Active Assignment — Submit Form ── */}
           {!myActiveEmergency && !isReadOnly && (
             <div className="card p-0 overflow-hidden">
               <div
@@ -482,7 +590,8 @@ export default function AmbulancePanel() {
                   Report Emergency
                 </span>
               </div>
-              <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-5" style={{ background: 'var(--bg-surface)' }}>
+              {/* Single-column on mobile, 2-column form on sm+ */}
+              <form onSubmit={handleSubmit} className="p-4 sm:p-5 flex flex-col gap-4 sm:gap-5" style={{ background: 'var(--bg-surface)' }}>
                 {formError && (
                   <div
                     className="p-3 text-sm rounded"
@@ -492,30 +601,34 @@ export default function AmbulancePanel() {
                   </div>
                 )}
 
+                {/* Full-width on mobile */}
                 <div className="flex flex-col gap-2">
-                  <label className="section-label">Incident / Condition Notes</label>
+                  <label htmlFor="accident_description" className="section-label">Incident / Condition Notes</label>
                   <textarea
+                    id="accident_description"
+                    name="accident_description"
                     value={description}
                     onChange={e => setDescription(e.target.value)}
                     placeholder="Describe the accident, visible injuries, patient condition..."
                     rows={3}
                     className="input-aes"
-                    style={{ height: 'auto', paddingTop: 10, paddingBottom: 10, resize: 'none' }}
+                    style={{ minHeight: 80, paddingTop: 10, paddingBottom: 10, resize: 'none' }}
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                {/* Type + Severity: single col mobile / 2-col sm+ */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <label className="section-label">Condition Protocol</label>
-                    <select className="input-aes" value={emergencyType} onChange={e => setEmergencyType(e.target.value)}>
+                    <label htmlFor="emergency_type" className="section-label">Condition Protocol</label>
+                    <select id="emergency_type" name="emergency_type" className="input-aes" style={{ minHeight: 48 }} value={emergencyType} onChange={e => setEmergencyType(e.target.value)}>
                       {EMERGENCY_TYPES.map(t => (
                         <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
                       ))}
                     </select>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="section-label">Severity</label>
-                    <select className="input-aes" value={severity} onChange={e => setSeverity(e.target.value)}>
+                    <label htmlFor="severity" className="section-label">Severity</label>
+                    <select id="severity" name="severity" className="input-aes" style={{ minHeight: 48 }} value={severity} onChange={e => setSeverity(e.target.value)}>
                       {SEVERITIES.map(s => (
                         <option key={s} value={s}>{s.toUpperCase()}</option>
                       ))}
@@ -546,12 +659,16 @@ export default function AmbulancePanel() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <input
+                      id="latitude" name="latitude"
+                      aria-label="Latitude"
                       type="number" step="any" inputMode="decimal"
                       value={lat} onChange={e => setLat(e.target.value)}
                       placeholder="Latitude"
                       className="input-aes font-['Barlow_Condensed'] font-bold text-base"
                     />
                     <input
+                      id="longitude" name="longitude"
+                      aria-label="Longitude"
                       type="number" step="any" inputMode="decimal"
                       value={lon} onChange={e => setLon(e.target.value)}
                       placeholder="Longitude"
@@ -566,17 +683,26 @@ export default function AmbulancePanel() {
                   )}
                 </div>
 
+                {/* Submit — full width, 52px min-height for mobile touch */}
                 <button
                   type="submit"
                   disabled={submitting}
                   className="btn-base btn-primary w-full"
-                  style={{ height: 52, fontSize: 14, letterSpacing: '2.5px' }}
+                  style={{ minHeight: 52, fontSize: 14, letterSpacing: '2.5px' }}
                 >
                   {submitting
                     ? <Loader2 size={18} className="animate-spin" />
                     : <><Send size={15} style={{ marginRight: 8 }} />Submit Emergency</>
                   }
                 </button>
+                {pendingEmergencyCount > 0 && (
+                  <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                    <span className="text-xs text-amber-400 font-semibold">
+                      {pendingEmergencyCount} {pendingEmergencyCount === 1 ? 'emergency' : 'emergencies'} queued — will auto-submit when connection returns
+                    </span>
+                  </div>
+                )}
               </form>
             </div>
           )}

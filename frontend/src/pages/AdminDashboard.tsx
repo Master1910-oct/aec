@@ -251,8 +251,8 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── Stats Row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* ── Stats Row — 2-col mobile, 4-col md+ ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <StatCard
           label="Active Emergencies"
           value={activeEmergencies.length}
@@ -313,7 +313,8 @@ export default function AdminDashboard() {
       {/* ════ OVERVIEW SECTION ════ */}
       {activeSection === 'overview' && (
         <div className="flex flex-col gap-5">
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+          {/* ── Overview Section: Map + Assignments — stack on mobile, side-by-side lg+ ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
             {/* Live Map */}
             <div className="lg:col-span-3 card p-0 overflow-hidden flex flex-col">
               <div className="px-4 py-3 border-b flex items-center justify-between" style={{ background: 'var(--bg-surface)' }}>
@@ -341,7 +342,7 @@ export default function AdminDashboard() {
                     available_beds: h.available_beds ?? 0, latitude: h.latitude ?? null,
                     longitude: h.longitude ?? null, status: (h.available_beds ?? 0) > 0 ? 'GREEN' : 'RED',
                   }))}
-                  className="w-full h-[400px]"
+                  className="w-full h-[45vh] md:h-[400px]"
                 />
               )}
             </div>
@@ -400,11 +401,12 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Charts Row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Charts Row — hidden on mobile (too small), visible md+ */}
+          <div className="hidden md:grid grid-cols-1 md:grid-cols-3 gap-5">
             <div className="card flex flex-col gap-3">
               <span className="section-label">Response Time (24H)</span>
-              <div className="h-32 -ml-4">
+              {/* Chart height: 180px tablet, 220px lg+ via class on container */}
+              <div className="h-32 lg:h-40 -ml-4">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={RESPONSE_DATA} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                     <XAxis dataKey="t" tick={{ fontSize: 10, fill: 'var(--text-dim)', fontFamily: 'Barlow' }} axisLine={false} tickLine={false} />
@@ -458,7 +460,7 @@ export default function AdminDashboard() {
                 <div className="h-32 flex items-center justify-center"><EmptyState icon={Activity} title="No Data" /></div>
               )}
             </div>
-          </div>
+          </div>{/* /Charts Row */}
         </div>
       )}
 

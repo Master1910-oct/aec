@@ -18,6 +18,7 @@
     "@vitejs/plugin-react-swc": "^4.2.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "idb": "^8.0.3",
     "leaflet": "^1.9.4",
     "lovable-tagger": "^1.1.13",
     "lucide-react": "^0.575.0",

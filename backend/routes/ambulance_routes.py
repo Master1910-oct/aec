@@ -1,7 +1,7 @@
 from flask import Blueprint, request, g
 from datetime import datetime
 from database.db import db
-from models import Ambulance, EmergencyRequest, Hospital
+from models import Ambulance, EmergencyRequest, Hospital, LocationHistory
 from extensions.socketio_ext import socketio
 from utils.response import success_response, error_response
 from utils.decorators import token_required, roles_required
@@ -71,6 +71,93 @@ def update_location():
     except Exception as e:
         db.session.rollback()
         return error_response(str(e), 500)
+
+
+# ==========================================
+# 📦 BATCH SYNC OFFLINE GPS LOCATIONS
+# ==========================================
+@ambulance_bp.route("/location/batch", methods=["POST"])
+@token_required
+@roles_required("ambulance")
+def update_location_batch():
+    """
+    Accepts a batch of GPS records collected while the device was offline.
+    Security: each record's ambulance_id is validated against the JWT entity_id.
+    Timestamp guard: only the newest record updates ambulance.latitude/longitude.
+    Full trail: every record is saved to location_history.
+    """
+    data = request.get_json()
+    records = data.get("records", [])
+
+    if not records:
+        return error_response("No records provided", 400)
+
+    # Security: verify entity_id exists in token
+    if not g.current_user.get("entity_id"):
+        return error_response("Invalid token: missing entity_id", 403)
+
+    ambulance = Ambulance.query.filter_by(
+        user_id=g.current_user["user_id"]
+    ).first_or_404()
+
+    processed = 0
+    skipped = 0
+
+    for record in records:
+        # Security: reject if ambulance_id doesn’t match JWT entity_id
+        if record.get("ambulance_id") != g.current_user["entity_id"]:
+            return error_response("Unauthorized record in batch", 403)
+
+        # Validate coordinates are within valid ranges
+        lat = record.get("latitude")
+        lon = record.get("longitude")
+        if lat is None or lon is None or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            skipped += 1
+            continue
+
+        try:
+            recorded_at = datetime.fromisoformat(record["timestamp"])
+        except (ValueError, KeyError):
+            skipped += 1
+            continue
+
+        # Only update ambulance’s current position if this record is newer
+        if (ambulance.last_location_updated_at is None or
+                recorded_at > ambulance.last_location_updated_at):
+            ambulance.latitude = lat
+            ambulance.longitude = lon
+            ambulance.last_location_updated_at = recorded_at
+
+        # Always append to location_history (full trail for all ambulances)
+        history = LocationHistory(
+            ambulance_id=ambulance.ambulance_id,
+            latitude=lat,
+            longitude=lon,
+            recorded_at=recorded_at,
+            synced_at=datetime.utcnow(),
+            is_offline_record=True
+        )
+        db.session.add(history)
+        processed += 1
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return error_response("Database error during batch insert", 500)
+
+    # Emit latest position to admin room after sync
+    socketio.emit("ambulance_location_update", {
+        "ambulance_id": ambulance.ambulance_id,
+        "latitude": ambulance.latitude,
+        "longitude": ambulance.longitude,
+        "synced_from_offline": True
+    }, room="admin")
+
+    return success_response(
+        message="Batch processed",
+        data={"processed": processed, "skipped": skipped}
+    )
 
 
 # ==========================================

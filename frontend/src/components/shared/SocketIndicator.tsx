@@ -4,7 +4,7 @@ interface SocketIndicatorProps {
 
 export function SocketIndicator({ connected }: SocketIndicatorProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5 sm:gap-2">
       {connected ? (
         <>
           <span className="relative flex" style={{ width: 8, height: 8 }}>
@@ -17,7 +17,9 @@ export function SocketIndicator({ connected }: SocketIndicatorProps) {
               style={{ width: 8, height: 8, background: 'var(--safe)' }}
             />
           </span>
+          {/* Label: hidden on mobile (dot-only), visible sm+ */}
           <span
+            className="hidden sm:inline"
             style={{
               fontFamily: "'Barlow Condensed', sans-serif",
               fontWeight: 700,
@@ -37,6 +39,7 @@ export function SocketIndicator({ connected }: SocketIndicatorProps) {
             style={{ width: 8, height: 8, background: 'var(--critical)', flexShrink: 0 }}
           />
           <span
+            className="hidden sm:inline"
             style={{
               fontFamily: "'Barlow Condensed', sans-serif",
               fontWeight: 700,
@@ -53,3 +56,4 @@ export function SocketIndicator({ connected }: SocketIndicatorProps) {
     </div>
   );
 }
+

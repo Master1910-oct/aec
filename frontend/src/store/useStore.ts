@@ -143,6 +143,16 @@ interface AppState {
   addSlaBreach: (breach: SlaBreachEvent) => void;
   dismissSlaBreach: (emergencyId: number) => void;
   logout: () => void;
+
+  // ── Offline GPS sync ────────────────────────────────────────────────────────
+  isOffline: boolean;
+  pendingSyncCount: number;
+  isSyncing: boolean;
+  setOfflineStatus: (status: boolean) => void;
+  setSyncCount: (count: number) => void;
+  setSyncing: (status: boolean) => void;
+  pendingEmergencyCount: number;
+  setPendingEmergencyCount: (count: number) => void;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -157,6 +167,11 @@ export const useStore = create<AppState>((set, get) => ({
   adminUsers: [],
   slaBreaches: [],
   isSocketConnected: true,
+
+  // Offline GPS sync state
+  isOffline: false,
+  pendingSyncCount: 0,
+  isSyncing: false,
 
   setCurrentUser: (u) => set({ currentUser: u }),
   setActiveRole: (r) => set({ activeRole: r }),
@@ -306,4 +321,11 @@ export const useStore = create<AppState>((set, get) => ({
     localStorage.removeItem('aes_auth_token');
     set({ currentUser: null, slaBreaches: [] });
   },
+
+  // ── Offline GPS sync actions ─────────────────────────────────────────────────
+  setOfflineStatus: (status) => set({ isOffline: status }),
+  setSyncCount: (count) => set({ pendingSyncCount: count }),
+  setSyncing: (status) => set({ isSyncing: status }),
+  pendingEmergencyCount: 0,
+  setPendingEmergencyCount: (count) => set({ pendingEmergencyCount: count }),
 }));

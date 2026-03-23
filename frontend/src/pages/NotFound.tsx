@@ -3,7 +3,7 @@ import { useStore } from '@/store/useStore';
 import { AlertTriangle } from 'lucide-react';
 
 export default function NotFound() {
-  const navigate   = useNavigate();
+  const navigate        = useNavigate();
   const { currentUser } = useStore();
 
   const homeRoute =
@@ -26,8 +26,10 @@ export default function NotFound() {
         }}
       />
 
+      {/* Content card — single centred column */}
       <div className="relative flex flex-col items-center text-center gap-8 max-w-md animate-slide-in-up">
-        {/* Icon */}
+
+        {/* Alert icon */}
         <div
           className="flex items-center justify-center rounded-full"
           style={{
@@ -39,21 +41,21 @@ export default function NotFound() {
           <AlertTriangle size={36} style={{ color: 'var(--critical)' }} />
         </div>
 
-        {/* 404 */}
-        <div className="flex flex-col items-center gap-2">
-          <span
-            style={{
-              fontFamily: "'Barlow Condensed', sans-serif",
-              fontWeight: 700,
-              fontSize: 96,
-              lineHeight: 1,
-              color: 'var(--critical)',
-              letterSpacing: '-2px',
-              textShadow: '0 0 60px rgba(232,0,29,0.3)',
-            }}
-          >
-            404
-          </span>
+        {/* 404 — scales: text-7xl mobile → text-9xl desktop */}
+        <span
+          className="font-bold leading-none text-7xl sm:text-8xl lg:text-9xl"
+          style={{
+            fontFamily: "'Barlow Condensed', sans-serif",
+            color: 'var(--critical)',
+            letterSpacing: '-2px',
+            textShadow: '0 0 60px rgba(232,0,29,0.3)',
+          }}
+        >
+          404
+        </span>
+
+        {/* Headline + description */}
+        <div className="flex flex-col gap-3">
           <h1
             style={{
               fontFamily: "'Barlow Condensed', sans-serif",
@@ -75,15 +77,15 @@ export default function NotFound() {
               lineHeight: 1.6,
             }}
           >
-            The route you requested doesn't exist or you don't have permission to access it.
+            The route you requested does not exist or you lack permission to access it.
           </p>
         </div>
 
-        {/* Back button */}
+        {/* Back button — full-width on mobile, auto on sm+ */}
         <button
           onClick={() => navigate(homeRoute)}
-          className="btn-base btn-primary"
-          style={{ minWidth: 200, height: 50, fontSize: 14, letterSpacing: '2.5px' }}
+          className="btn-base btn-primary w-full sm:w-auto"
+          style={{ minWidth: 200, height: 52, fontSize: 14, letterSpacing: '2.5px' }}
         >
           Return to Base
         </button>
@@ -98,8 +100,9 @@ export default function NotFound() {
             color: 'var(--text-dim)',
           }}
         >
-          AES Emergency System — v1.0.0
+          AES Emergency System v1.0.0
         </span>
+
       </div>
     </div>
   );
