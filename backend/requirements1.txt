@@ -9,4 +9,4 @@ flask-limiter
 pymysql
 pyjwt
 bcrypt
-dotenv
+python-dotenv
