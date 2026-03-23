@@ -25,9 +25,11 @@ def create_app():
     app.config.from_object(Config)
 
     # ─────────────────────────────────────────
-    # CORS — restrict to your frontend origin
+    # CORS — supports multiple origins via comma-separated env var
     # ─────────────────────────────────────────
-    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+    allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+    allowed_origins = [o.strip() for o in allowed_origins_raw.split(",")]
+
     CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
     # ─────────────────────────────────────────
@@ -47,7 +49,6 @@ def create_app():
         storage_uri="memory://"
     )
 
-    # 429 error handler
     @app.errorhandler(429)
     def rate_limit_exceeded(e):
         return jsonify({
@@ -56,10 +57,7 @@ def create_app():
             "data": None
         }), 429
 
-    # Strict on auth (brute force protection)
     limiter.limit("5 per minute")(auth_bp)
-
-    # Exempt real-time & emergency-critical routes
     limiter.exempt(ambulance_bp)
     limiter.exempt(emergency_bp)
 
@@ -88,16 +86,18 @@ def create_app():
     from routes.setup_routes import setup_bp
     app.register_blueprint(setup_bp, url_prefix="/api/v1")
 
+    # ─────────────────────────────────────────
+    # Background Tasks (must run in production too)
+    # ─────────────────────────────────────────
+    thread = threading.Thread(target=start_sla_monitor, args=(app,))
+    thread.daemon = True
+    thread.start()
+
     return app
 
 
 if __name__ == "__main__":
     app = create_app()
-
-    thread = threading.Thread(target=start_sla_monitor, args=(app,))
-    thread.daemon = True
-    thread.start()
-
     socketio.run(
         app,
         host="0.0.0.0",
