@@ -4,33 +4,62 @@ from models import EmergencyRequest
 from extensions.socketio_ext import socketio
 
 
+DISPATCH_SLA_MINUTES = 8
+TRANSPORT_SLA_MINUTES = 7
+
+DISPATCH_BREACH_STATUSES = [
+    "pending",
+    "allocated",
+    "en_route"
+]
+
+TRANSPORT_BREACH_STATUSES = [
+    "arrived",
+    "first_aid"
+]
+
+SAFE_STATUSES = [
+    "transfer_en_route",
+    "completed",
+    "cancelled",
+    "escalated"
+]
+
 def check_sla_breaches():
-    now = datetime.utcnow()
-
-    # Only check truly active emergencies — exclude any terminal states
-    active_statuses = ["pending", "allocated", "en_route", "arrived", "in_progress"]
-
-    breached = EmergencyRequest.query.filter(
-        EmergencyRequest.status.in_(active_statuses),
-        EmergencyRequest.sla_deadline < now
+    active_emergencies = EmergencyRequest.query.filter(
+        EmergencyRequest.status.in_(DISPATCH_BREACH_STATUSES + TRANSPORT_BREACH_STATUSES)
     ).all()
 
-    for emergency in breached:
-        emergency.status = "escalated"
+    now = datetime.utcnow()
 
-        # 🔥 Emit only to admin room
-        socketio.emit(
-            "sla_breach",
-            {
-                "emergency_id": emergency.emergency_id,
-                "patient_name": emergency.patient_name,
-                "severity": emergency.severity,
-                "deadline": emergency.sla_deadline.isoformat() if emergency.sla_deadline else None,
-                "breached_at": now.isoformat(),
-                "message": f"SLA Breached: Emergency #{emergency.emergency_id} ({emergency.severity}) has exceeded its deadline.",
-            },
-            room="admin"
-        )
+    for emergency in active_emergencies:
+        # CHECK 1 — Dispatch SLA
+        if emergency.status in DISPATCH_BREACH_STATUSES:
+            if (emergency.dispatch_sla_deadline and now > emergency.dispatch_sla_deadline):
+                elapsed = (now - emergency.created_at).total_seconds() / 60
+                socketio.emit("sla_breach", {
+                    "emergency_id": emergency.emergency_id,
+                    "type": "dispatch",
+                    "patient_name": emergency.patient_name,
+                    "severity": emergency.severity,
+                    "message": "Ambulance has not reached the scene",
+                    "minutes_elapsed": round(elapsed, 1),
+                    "target_minutes": DISPATCH_SLA_MINUTES,
+                    "current_status": emergency.status
+                }, room="admin")
 
-    if breached:
-        db.session.commit()
+        # CHECK 2 — Transport SLA
+        elif emergency.status in TRANSPORT_BREACH_STATUSES:
+            if (emergency.transport_sla_deadline and now > emergency.transport_sla_deadline):
+                start_time = emergency.scene_arrived_at or emergency.created_at
+                elapsed = (now - start_time).total_seconds() / 60
+                socketio.emit("sla_breach", {
+                    "emergency_id": emergency.emergency_id,
+                    "type": "transport",
+                    "patient_name": emergency.patient_name,
+                    "severity": emergency.severity,
+                    "message": "Patient has not reached hospital",
+                    "minutes_elapsed": round(elapsed, 1),
+                    "target_minutes": TRANSPORT_SLA_MINUTES,
+                    "current_status": emergency.status
+                }, room="admin")

@@ -18,3 +18,5 @@ backend/scripts/ambulance_credentials.csv
 backend/token_generator.py 
 
 IEEE_Project_Report.md
+
+tmp/

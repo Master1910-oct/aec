@@ -39,7 +39,12 @@ export interface BackendEmergency {
     longitude: number | null;
   } | null;
   created_at: string | null;
-  sla_deadline: string | null;
+  dispatch_sla_deadline: string | null;
+  transport_sla_deadline: string | null;
+  scene_arrived_at: string | null;
+  needs_transfer: boolean;
+  required_speciality: string | null;
+  transfer_legs: string | null;
   is_overdue: boolean;
 }
 
@@ -94,8 +99,11 @@ export interface AdminUser {
 export interface SlaBreachEvent {
   emergency_id: number;
   severity: string;
-  emergency_type: string;
-  sla_deadline: string | null;
+  patient_name?: string | null;
+  type: string;
+  current_status: string;
+  minutes_elapsed: number;
+  target_minutes: number;
   message: string;
   received_at: string;
 }
@@ -132,8 +140,9 @@ interface AppState {
     latitude: number;
     longitude: number;
   }) => Promise<BackendEmergency>;
-  updateEmergencyStatus: (emergencyId: number, status: string) => Promise<void>;
+  updateEmergencyStatus: (emergencyId: number, status: string, additionalPayload?: object) => Promise<void>;
   updateAmbulanceLocation: (latitude: number, longitude: number) => Promise<void>;
+  initiateTransfer: (emergencyId: number) => Promise<void>;
   acknowledgeEmergency: (emergencyId: number) => Promise<void>;
   updateBeds: (hospitalId: number, beds: number) => Promise<void>;
   updateSpecialities: (hospitalId: number, specialities: string[]) => Promise<void>;
@@ -249,8 +258,8 @@ export const useStore = create<AppState>((set, get) => ({
     return newEmergency;
   },
 
-  updateEmergencyStatus: async (emergencyId, status) => {
-    await api.post(`/api/v1/emergency/${emergencyId}/status`, { status });
+  updateEmergencyStatus: async (emergencyId, status, additionalPayload = {}) => {
+    await api.post(`/api/v1/emergency/${emergencyId}/status`, { status, ...additionalPayload });
     set(s => ({
       emergencies: s.emergencies.map(e =>
         e.emergency_id === emergencyId ? { ...e, status } : e
@@ -264,8 +273,18 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (err) { console.error('updateAmbulanceLocation failed', err); }
   },
 
+  initiateTransfer: async (emergencyId) => {
+    const res = await api.post<{ data: BackendEmergency }>(`/api/v1/emergency/${emergencyId}/transfer`, {});
+    const updated = res.data;
+    set(s => ({
+      emergencies: s.emergencies.map(e =>
+        e.emergency_id === emergencyId ? updated : e
+      ),
+    }));
+  },
+
   acknowledgeEmergency: async (emergencyId) => {
-    await api.post(`/api/v1/emergency/${emergencyId}/acknowledge`, {});
+    await api.post(`/api/v1/hospital/emergency/${emergencyId}/acknowledge`, {});
     set(s => ({
       emergencies: s.emergencies.map(e =>
         e.emergency_id === emergencyId ? { ...e, acknowledged: true } : e

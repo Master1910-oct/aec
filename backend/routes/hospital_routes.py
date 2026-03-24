@@ -109,3 +109,21 @@ def update_beds(hospital_id):
     socketio.emit("availability_updated", payload, room="admin")
 
     return success_response(message="Bed availability updated", data=payload)
+
+
+# ==========================================
+# ✅ ACKNOWLEDGE EMERGENCY (Informational Only)
+# ==========================================
+@hospital_bp.route("/emergency/<int:emergency_id>/acknowledge", methods=["POST"])
+@token_required
+@roles_required("hospital")
+def acknowledge_emergency(emergency_id):
+    emergency = EmergencyRequest.query.get_or_404(emergency_id)
+    socketio.emit(
+        "emergency_acknowledged",
+        { "emergency_id": emergency_id },
+        room=f"ambulance_{emergency.ambulance_id}"
+    )
+    return success_response(
+        message="Emergency acknowledged"
+    )

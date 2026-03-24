@@ -43,17 +43,20 @@ export const useSocketEvents = () => {
 
     // ── 1. SLA Breach (Admin Only) ────────────────────────────────────────────
     const handleSlaBreach = (data: any) => {
-      toast.error(`SLA Breached: Emergency #${data.emergency_id} (${data.severity})`, {
-        description: `Patient: ${data.patient_name || 'Unknown'}`,
+      toast.error(`SLA Breached: ${data.type.toUpperCase()} - ASG-${String(data.emergency_id).padStart(3, '0')}`, {
+        description: `${data.message} (${data.minutes_elapsed}m / ${data.target_minutes}m)`,
         duration: 0,
       });
-      // GAP 4: persist breach in store for the alert panel
+      
       useStore.getState().addSlaBreach({
         emergency_id: data.emergency_id,
         severity: data.severity,
-        emergency_type: data.emergency_type ?? 'Unknown',
-        sla_deadline: data.sla_deadline ?? null,
-        message: data.message ?? `SLA breached for Emergency #${data.emergency_id}`,
+        patient_name: data.patient_name,
+        type: data.type,
+        current_status: data.current_status,
+        minutes_elapsed: data.minutes_elapsed,
+        target_minutes: data.target_minutes,
+        message: data.message,
         received_at: new Date().toISOString(),
       });
       fetchDashboardStats();

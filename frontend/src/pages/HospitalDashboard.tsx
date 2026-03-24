@@ -10,6 +10,7 @@ import { SeverityBadge } from '@/components/shared/SeverityBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { StatCard } from '@/components/shared/StatCard';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { SLACountdown } from '@/components/shared/SLACountdown';
 
 // ── Capacity bar ───────────────────────────────────────────────────────────────
 function CapacityBar({ value, max, color }: { value: number; max: number; color: string }) {
@@ -83,7 +84,7 @@ export default function HospitalDashboard() {
   const [loading, setLoading] = useState(true);
   const [acknowledging, setAcknowledging] = useState<number | null>(null);
   const [bedsUpdating, setBedsUpdating] = useState(false);
-  const [activeTab, setActiveTab] = useState<'active' | 'resolved'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'transfers' | 'resolved'>('active');
 
   const { hospitals, fetchHospitals } = useStore();
   const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
@@ -370,16 +371,20 @@ export default function HospitalDashboard() {
       {/* ── Assignments ─────────────────────────────────────────────────────────── */}
       <div className="card p-0 overflow-hidden">
         <div
-          className="flex items-center justify-between px-4 py-3 border-b"
+          className="flex flex-col sm:flex-row sm:items-center justify-between px-4 py-3 border-b gap-3"
           style={{ background: 'var(--bg-surface)' }}
         >
           <span className="section-label">Incoming Assignments</span>
           {/* Tab switcher */}
           <div
             className="flex gap-0.5 rounded p-0.5"
-            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}
+            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', overflowX: 'auto', whiteSpace: 'nowrap' }}
           >
-            {(['active', 'resolved'] as const).map(tab => (
+            {(['active', 'transfers', 'resolved'] as const).map(tab => {
+              let count = 0;
+              if (tab === 'active') count = activeEmergencies.filter(e => !e.needs_transfer).length;
+              if (tab === 'transfers') count = activeEmergencies.filter(e => e.needs_transfer).length;
+              return (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -391,107 +396,114 @@ export default function HospitalDashboard() {
                   color: activeTab === tab ? 'var(--text)' : 'var(--text-dim)',
                 }}
               >
-                {tab} {tab === 'active' && activeEmergencies.length > 0 ? `(${activeEmergencies.length})` : ''}
+                {tab} {count > 0 ? `(${count})` : ''}
               </button>
-            ))}
+            )})}
           </div>
         </div>
 
-        {/* Active assignments */}
-        {activeTab === 'active' && (
+        {/* Active & Transfers assignments */}
+        {['active', 'transfers'].includes(activeTab) && (
           <div>
-            {activeEmergencies.length === 0 ? (
-              <EmptyState icon={CheckCircle2} title="No Active Emergencies" message="All cases have been resolved or no assignments exist." />
-            ) : (
-              activeEmergencies.map(e => {
-                const isCrit = e.severity === 'critical';
-                return (
-                  <div
-                    key={e.emergency_id}
-                    className="px-4 py-4 border-b"
-                    style={{
-                      borderLeft: isCrit ? '3px solid var(--critical)' : undefined,
-                      background: isCrit ? 'var(--critical-bg)' : undefined,
-                    }}
-                  >
-                    {/* Mobile: stack info then button; sm+: side by side */}
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
-                      <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
+            {(() => {
+                const list = activeTab === 'active' ? activeEmergencies.filter(e => !e.needs_transfer) : activeEmergencies.filter(e => e.needs_transfer);
+                if (list.length === 0) return <EmptyState icon={CheckCircle2} title={`No ${activeTab === 'transfers' ? 'Incoming Transfers' : 'Active Emergencies'}`} message="All cases have been resolved or no assignments exist." />;
+                return list.map(e => {
+                  const isCrit = e.severity === 'critical';
+                  const isTransfer = e.needs_transfer;
+                  return (
+                    <div
+                      key={e.emergency_id}
+                      className="px-4 py-4 border-b"
+                      style={{
+                        borderLeft: isCrit ? '3px solid var(--critical)' : (isTransfer ? '3px solid var(--info)' : undefined),
+                        background: isCrit ? 'var(--critical-bg)' : (isTransfer ? 'var(--info-bg)' : undefined),
+                      }}
+                    >
+                      {/* Mobile: stack info then button; sm+: side by side */}
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
+                        <div className="flex flex-col gap-2 flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              style={{
+                                fontFamily: "'Barlow Condensed', sans-serif",
+                                fontWeight: 700, fontSize: 14, color: isTransfer ? 'var(--info)' : 'var(--text)',
+                              }}
+                            >
+                              ASG-{String(e.emergency_id).padStart(3, '0')} {isTransfer ? '(TRANSFER)' : ''}
+                            </span>
+                            <SeverityBadge severity={e.severity} />
+                            <StatusBadge status={e.status} />
+                            {e.acknowledged && (
+                              <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--safe)' }}>
+                                <CheckCircle2 size={11} /> Accepted
+                              </span>
+                            )}
+                            <SLACountdown 
+                              dispatchSla={e.dispatch_sla_deadline} 
+                              transportSla={e.transport_sla_deadline} 
+                              status={e.status} 
+                            />
+                          </div>
+  
+                          <p
+                            className="capitalize"
+                            style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 500 }}
+                          >
+                            {e.emergency_type} Emergency
+                          </p>
+  
+                          {e.accident_description && (
+                            <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>{e.accident_description}</p>
+                          )}
+                          
+                          {isTransfer && e.transfer_legs && (
+                            <div className="text-xs mt-1 p-2 border-[1px solid rgba(29,111,232,0.3)] rounded text-[#1D6FE8]" style={{ background: 'rgba(29,111,232,0.1)' }}>
+                               Specialist Transfer Request: {e.required_speciality || e.emergency_type}
+                            </div>
+                          )}
+  
+                          <div className="flex flex-wrap gap-4 text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                            {e.ambulance && (
+                              <span className="flex items-center gap-1">
+                                🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
+                                {hospital?.latitude && hospital.longitude && e.ambulance?.latitude && e.ambulance?.longitude && (
+                                  <span style={{ color: '#06B6D4', marginLeft: 4 }}>
+                                    · {haversineKm(hospital.latitude, hospital.longitude, e.ambulance.latitude, e.ambulance.longitude).toFixed(1)} km
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                            <span className="flex items-center gap-1">
+                              <Clock size={11} />
+                              {e.created_at ? new Date(e.created_at).toLocaleTimeString('en-IN') : '—'}
+                            </span>
+                          </div>
+                        </div>
+  
+                        {!e.acknowledged && !isReadOnly && (
+                          /* Mobile: full-width button stacked below info; sm+: inline */
+                          <button
+                            onClick={() => handleAcknowledge(e.emergency_id)}
+                            disabled={acknowledging === e.emergency_id}
+                            className="btn-base w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 mt-2 sm:mt-0"
                             style={{
-                              fontFamily: "'Barlow Condensed', sans-serif",
-                              fontWeight: 700, fontSize: 14, color: 'var(--text)',
+                              minHeight: 48, padding: '0 14px', fontSize: 13,
+                              background: 'var(--safe)', color: '#fff',
+                              borderRadius: 'var(--radius)', border: 'none',
                             }}
                           >
-                            ASG-{String(e.emergency_id).padStart(3, '0')}
-                          </span>
-                          <SeverityBadge severity={e.severity} />
-                          <StatusBadge status={e.status} />
-                          {e.acknowledged && (
-                            <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--safe)' }}>
-                              <CheckCircle2 size={11} /> Accepted
-                            </span>
-                          )}
-                          {e.is_overdue && (
-                            <span className="badge badge-critical flex items-center gap-1" style={{ fontSize: 9 }}>
-                              <AlertTriangle size={8} /> SLA BREACH
-                            </span>
-                          )}
-                        </div>
-
-                        <p
-                          className="capitalize"
-                          style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 500 }}
-                        >
-                          {e.emergency_type} Emergency
-                        </p>
-
-                        {e.accident_description && (
-                          <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>{e.accident_description}</p>
+                            {acknowledging === e.emergency_id
+                              ? <Loader2 size={13} className="animate-spin" />
+                              : <><CheckCircle2 size={13} /> Acknowledge</>
+                            }
+                          </button>
                         )}
-
-                        <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-dim)' }}>
-                          {e.ambulance && (
-                            <span className="flex items-center gap-1">
-                              🚑 {e.ambulance.vehicle_number} ({e.ambulance.driver_name})
-                              {hospital?.latitude && hospital.longitude && e.ambulance?.latitude && e.ambulance?.longitude && (
-                                <span style={{ color: '#06B6D4', marginLeft: 4 }}>
-                                  · {haversineKm(hospital.latitude, hospital.longitude, e.ambulance.latitude, e.ambulance.longitude).toFixed(1)} km
-                                </span>
-                              )}
-                            </span>
-                          )}
-                          <span className="flex items-center gap-1">
-                            <Clock size={11} />
-                            {e.created_at ? new Date(e.created_at).toLocaleTimeString('en-IN') : '—'}
-                          </span>
-                        </div>
                       </div>
-
-                      {!e.acknowledged && !isReadOnly && (
-                        /* Mobile: full-width button stacked below info; sm+: inline */
-                        <button
-                          onClick={() => handleAcknowledge(e.emergency_id)}
-                          disabled={acknowledging === e.emergency_id}
-                          className="btn-base w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 mt-2 sm:mt-0"
-                          style={{
-                            minHeight: 48, padding: '0 14px', fontSize: 13,
-                            background: 'var(--safe)', color: '#fff',
-                            borderRadius: 'var(--radius)', border: 'none',
-                          }}
-                        >
-                          {acknowledging === e.emergency_id
-                            ? <Loader2 size={13} className="animate-spin" />
-                            : <><CheckCircle2 size={13} /> Accept</>
-                          }
-                        </button>
-                      )}
                     </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                });
+            })()}
           </div>
         )}
 

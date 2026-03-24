@@ -16,7 +16,8 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_pre_ping": True
+        "pool_pre_ping": True,
+        "pool_timeout": 5
     }
 
     SECRET_KEY = os.getenv("SECRET_KEY")

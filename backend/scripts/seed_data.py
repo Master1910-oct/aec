@@ -132,11 +132,11 @@ with app.app_context():
 
     db.session.commit()
 
-    print("\n✅ Seed data inserted successfully")
-    print("─" * 45)
+    print("\n[OK] Seed data inserted successfully")
+    print("-" * 45)
     print("  Admin:        admin@aes.com        / admin123")
     print("  Hospital 1:   hospital1@aes.com    / hospital123")
     print("  Hospital 2:   hospital2@aes.com    / hospital123")
     print("  Ambulance 1:  ambulance1@aes.com   / amb123")
     print("  Ambulance 2:  ambulance2@aes.com   / amb123")
-    print("─" * 45)
+    print("-" * 45)

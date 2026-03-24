@@ -3,9 +3,10 @@ from services.sla_monitor_service import check_sla_breaches
 
 
 def start_sla_monitor(app):
-    print("✅ SLA Monitoring Service Started")
+    print("[OK] SLA Monitoring Service Started")
 
-    with app.app_context():
-        while True:
+    while True:
+        with app.app_context():
             check_sla_breaches()
-            time.sleep(30)
+        time.sleep(30)
+

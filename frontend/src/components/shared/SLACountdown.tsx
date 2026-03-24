@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Timer } from 'lucide-react';
 
-interface SLACountdownProps {
-  deadline: string | null;
+export interface SLACountdownProps {
+  dispatchSla?: string | null;
+  transportSla?: string | null;
   status?: string;
 }
 
@@ -12,32 +13,37 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export function SLACountdown({ deadline, status }: SLACountdownProps) {
-  const terminal = ['completed', 'cancelled'].includes(status ?? '');
+export function SLACountdown({ dispatchSla, transportSla, status }: SLACountdownProps) {
+  const terminal = ['completed', 'cancelled', 'escalated'].includes(status ?? '');
+  
+  const isDispatch = ['pending', 'allocated', 'en_route'].includes(status ?? '');
+  const isTransport = ['arrived', 'first_aid', 'transfer_en_route'].includes(status ?? '');
+
+  const activeDeadline = isDispatch ? dispatchSla : (isTransport ? transportSla : null);
 
   const calc = useCallback(() => {
-    if (!deadline) return null;
-    return Math.floor((new Date(deadline).getTime() - Date.now()) / 1000);
-  }, [deadline]);
+    if (!activeDeadline) return null;
+    return Math.floor((new Date(activeDeadline).getTime() - Date.now()) / 1000);
+  }, [activeDeadline]);
 
   const [left, setLeft] = useState<number | null>(calc);
 
   useEffect(() => {
-    if (terminal || !deadline) return;
+    if (terminal || !activeDeadline) return;
     setLeft(calc());
     const id = setInterval(() => setLeft(calc()), 1000);
     return () => clearInterval(id);
-  }, [deadline, terminal, calc]);
+  }, [activeDeadline, terminal, calc]);
 
-  if (terminal || !deadline || left === null) return null;
+  if (terminal || !activeDeadline || left === null) return null;
 
   if (left <= 0) {
     return (
       <span
         className="badge badge-critical animate-pulse flex items-center gap-1"
-        style={{ fontSize: 10 }}
+        style={{ fontSize: 10, background: 'var(--critical-bg)', color: 'var(--critical)', border: '1px solid var(--critical-br)' }}
       >
-        <Timer size={10} /> BREACHED
+        <Timer size={10} /> {isDispatch ? 'DISPATCH BREACHED' : 'TRANSPORT BREACHED'}
       </span>
     );
   }
@@ -51,12 +57,17 @@ export function SLACountdown({ deadline, status }: SLACountdownProps) {
       : { color: 'var(--critical)', borderColor: 'var(--critical-br)', background: 'var(--critical-bg)' };
 
   return (
-    <span
-      className={`badge flex items-center gap-1 ${mins < 2 ? 'animate-pulse' : ''}`}
-      style={{ ...colorStyle, fontSize: 10, border: `1px solid ${colorStyle.borderColor}` }}
-    >
-      <Timer size={10} />
-      {formatTime(left)}
-    </span>
+    <div className="flex flex-col items-end gap-0.5">
+        <span
+          className={`badge flex items-center gap-1 ${mins < 2 ? 'animate-pulse' : ''}`}
+          style={{ ...colorStyle, fontSize: 10, border: `1px solid ${colorStyle.borderColor}` }}
+        >
+          <Timer size={10} />
+          {formatTime(left)}
+        </span>
+        <span style={{ fontSize: 8, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>
+            {isDispatch ? 'DISPATCH SLA' : 'TRANSPORT SLA'}
+        </span>
+    </div>
   );
 }

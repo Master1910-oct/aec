@@ -1,22 +1,29 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app import create_app
 from models import User
 
 app = create_app()
 
 with app.app_context():
-    user = User.query.filter_by(email='ambulance2@aes.com').first()
-    print('User found:', user)
+    email = 'admin@example.com'
+    user = User.query.filter_by(email=email).first()
+    print(f'User found: {user}')
+
     if user:
-        print('Hash prefix:', user.password_hash[:30])
+        print(f'Email: {user.email}')
+        print(f'Role: {user.role}')
+        print(f'Hash prefix: {user.password_hash[:30]}')
         try:
-            result = user.check_password('123456')
-            print('Password check result:', result)
+            # The password used in seed_data.py for admin@aes.com is 'admin123'
+            password_to_check = 'admin123'
+            result = user.check_password(password_to_check)
+            print(f"Password check for '{password_to_check}': {result}")
         except Exception as e:
             print('ERROR in check_password:', e)
+            import traceback
+            traceback.print_exc()
     else:
-        print('No user found with that email - try another email!')
-        # List all users
-        all_users = User.query.all()
-        print('All users in DB:')
-        for u in all_users:
-            print(f'  - {u.email} | role: {u.role} | hash prefix: {u.password_hash[:20]}')
+        print(f'No user found with email {email}')

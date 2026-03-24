@@ -40,6 +40,23 @@ class EmergencyRequest(db.Model):
     acknowledged = db.Column(db.Boolean, default=False, nullable=False)
     hospital_id  = db.Column(db.Integer, db.ForeignKey("hospital.hospital_id"),    index=True)
     ambulance_id = db.Column(db.Integer, db.ForeignKey("ambulances.ambulance_id"), index=True)
+
+    # GPS fields
+    accident_latitude = db.Column(db.Float, nullable=True)
+    accident_longitude = db.Column(db.Float, nullable=True)
+
+    # Transfer fields
+    needs_transfer = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    required_speciality = db.Column(db.String(100), nullable=True)
+    transfer_legs = db.Column(db.Text, nullable=True)
+
+    # Dual SLA timers
+    dispatch_sla_deadline = db.Column(db.DateTime, nullable=True)
+    transport_sla_deadline = db.Column(db.DateTime, nullable=True)
+    scene_arrived_at = db.Column(db.DateTime, nullable=True)
+    dispatch_response_time = db.Column(db.Integer, nullable=True)
+    transport_response_time = db.Column(db.Integer, nullable=True)
+
     created_at   = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     sla_deadline = db.Column(db.DateTime, nullable=True, index=True)
 
@@ -47,8 +64,11 @@ class EmergencyRequest(db.Model):
     ambulance = db.relationship("Ambulance", back_populates="emergencies")
 
     def is_overdue(self):
-        if self.sla_deadline and self.status not in ["completed", "cancelled", "escalated"]:
-            return datetime.utcnow() > self.sla_deadline
+        now = datetime.utcnow()
+        if self.status in ["pending", "allocated", "en_route"]:
+            return bool(self.dispatch_sla_deadline and now > self.dispatch_sla_deadline)
+        elif self.status in ["arrived", "first_aid", "transfer_en_route"]:
+            return bool(self.transport_sla_deadline and now > self.transport_sla_deadline)
         return False
 
     def to_dict(self):
@@ -73,21 +93,38 @@ class EmergencyRequest(db.Model):
                 "longitude":      self.ambulance.longitude,
             }
 
+        now = datetime.utcnow()
+        is_overdue = False
+        if self.status in ["pending", "allocated", "en_route"]:
+            if self.dispatch_sla_deadline and now > self.dispatch_sla_deadline:
+                is_overdue = True
+        elif self.status in ["arrived", "first_aid", "transfer_en_route"]:
+            if self.transport_sla_deadline and now > self.transport_sla_deadline:
+                is_overdue = True
+
         return {
-            "emergency_id":          self.emergency_id,
-            "patient_name":          self.patient_name,
-            "accident_description":  self.accident_description,
-            "latitude":              self.latitude,
-            "longitude":             self.longitude,
-            "emergency_type":        self.emergency_type,
-            "severity":              self.severity,
-            "status":                self.status,
-            "acknowledged":          self.acknowledged,
-            "hospital_id":           self.hospital_id,
-            "ambulance_id":          self.ambulance_id,
-            "hospital":              hospital_info,
-            "ambulance":             ambulance_info,
-            "created_at":            self.created_at.isoformat() if self.created_at else None,
-            "sla_deadline":          self.sla_deadline.isoformat() if self.sla_deadline else None,
-            "is_overdue":            self.is_overdue(),
+            "id":                   self.emergency_id,  # For legacy frontend compatibility
+            "emergency_id":         self.emergency_id,
+            "patient_name":         self.patient_name,
+            "accident_description": self.accident_description,
+            "latitude":             self.latitude,
+            "longitude":            self.longitude,
+            "accident_latitude":    self.accident_latitude,
+            "accident_longitude":   self.accident_longitude,
+            "emergency_type":       self.emergency_type,
+            "severity":             self.severity,
+            "status":               self.status,
+            "acknowledged":         self.acknowledged,
+            "hospital_id":          self.hospital_id,
+            "ambulance_id":         self.ambulance_id,
+            "hospital":             hospital_info,
+            "ambulance":            ambulance_info,
+            "created_at":           self.created_at.isoformat() if self.created_at else None,
+            "dispatch_sla_deadline": self.dispatch_sla_deadline.isoformat() if self.dispatch_sla_deadline else None,
+            "transport_sla_deadline": self.transport_sla_deadline.isoformat() if self.transport_sla_deadline else None,
+            "scene_arrived_at":     self.scene_arrived_at.isoformat() if self.scene_arrived_at else None,
+            "needs_transfer":       self.needs_transfer,
+            "required_speciality":  self.required_speciality,
+            "transfer_legs":        self.transfer_legs,
+            "is_overdue":           is_overdue,
         }

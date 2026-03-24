@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useStore } from '@/store/useStore';
 import {
   Ambulance, Building2, AlertTriangle, CheckCircle2,
@@ -66,6 +66,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeSection, setActiveSection] = useState<'overview' | 'fleet' | 'users' | 'hospitals' | 'dispatch'>('overview');
+  const [expandedEmergency, setExpandedEmergency] = useState<number | null>(null);
 
   // ── User creation
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -243,7 +244,7 @@ export default function AdminDashboard() {
           {slaBreaches.map(breach => (
             <AlertBanner
               key={breach.emergency_id}
-              message={`SLA Breach on ASG-${String(breach.emergency_id).padStart(3, '0')} (${breach.emergency_type})`}
+              message={`SLA Breach on ASG-${String(breach.emergency_id).padStart(3, '0')} (${breach.type.toUpperCase()})`}
               time={new Date(breach.received_at).toLocaleTimeString('en-IN')}
               onDismiss={() => dismissSlaBreach(breach.emergency_id)}
             />
@@ -369,29 +370,58 @@ export default function AdminDashboard() {
                       {activeEmergencies.map(e => {
                         const isCrit = e.severity === 'critical';
                         return (
-                          <tr key={e.emergency_id} className={`tr-hover ${isCrit ? 'tr-critical' : ''}`}>
-                            <td className="td-cell">
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2">
-                                  <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, color: 'var(--text)' }}>
-                                    ASG-{String(e.emergency_id).padStart(3, '0')}
-                                  </span>
-                                  <SeverityBadge severity={e.severity} />
+                          <Fragment key={e.emergency_id}>
+                            <tr 
+                              className={`tr-hover ${isCrit ? 'tr-critical' : ''} ${e.needs_transfer ? 'cursor-pointer' : ''}`}
+                              onClick={() => { if (e.needs_transfer) setExpandedEmergency(expandedEmergency === e.emergency_id ? null : e.emergency_id); }}
+                            >
+                              <td className="td-cell">
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-2">
+                                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, color: 'var(--text)' }}>
+                                      ASG-{String(e.emergency_id).padStart(3, '0')}
+                                    </span>
+                                    {e.needs_transfer && (
+                                      <span className="badge" style={{ background: 'var(--info-bg)', color: 'var(--info)', border: '1px solid var(--info-br)', fontSize: 9 }}>TRANSFER</span>
+                                    )}
+                                    <SeverityBadge severity={e.severity} />
+                                  </div>
+                                  <span className="capitalize text-xs">{e.emergency_type}</span>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {e.hospital && <span className="badge badge-hospital" style={{ fontSize: 9 }}>H: {e.hospital.name.split(' ')[0]}</span>}
+                                    {e.ambulance && <span className="badge badge-ambulance" style={{ fontSize: 9 }}>A: {e.ambulance.vehicle_number}</span>}
+                                  </div>
                                 </div>
-                                <span className="capitalize text-xs">{e.emergency_type}</span>
-                                <div className="flex items-center gap-2 mt-1">
-                                  {e.hospital && <span className="badge badge-hospital" style={{ fontSize: 9 }}>H: {e.hospital.name.split(' ')[0]}</span>}
-                                  {e.ambulance && <span className="badge badge-ambulance" style={{ fontSize: 9 }}>A: {e.ambulance.vehicle_number}</span>}
+                              </td>
+                              <td className="td-cell align-top text-right">
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <StatusBadge status={e.status} />
+                                  <SLACountdown dispatchSla={e.dispatch_sla_deadline} transportSla={e.transport_sla_deadline} status={e.status} />
                                 </div>
-                              </div>
-                            </td>
-                            <td className="td-cell align-top text-right">
-                              <div className="flex flex-col items-end gap-1.5">
-                                <StatusBadge status={e.status} />
-                                <SLACountdown deadline={e.sla_deadline} status={e.status} />
-                              </div>
-                            </td>
-                          </tr>
+                              </td>
+                            </tr>
+                            {e.needs_transfer && expandedEmergency === e.emergency_id && (
+                              <tr style={{ background: 'var(--bg-raised)' }}>
+                                <td colSpan={2} className="px-4 py-3 border-b border-[var(--border)]">
+                                  <div className="flex flex-col gap-2">
+                                    <span className="text-xs font-bold" style={{ color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '1px' }}>Transfer Journey Logs</span>
+                                    {(() => {
+                                      try {
+                                        const legs = JSON.parse(e.transfer_legs || '[]');
+                                        if (legs.length === 0) return <span className="text-xs" style={{ color: 'var(--text-dim)' }}>Pending generation once on scene...</span>;
+                                        return legs.map((leg: any, i: number) => (
+                                          <div key={i} className="text-xs p-2 rounded flex items-center gap-2" style={{ background: 'var(--bg-base)', border: '1px dashed var(--border)' }}>
+                                            <Activity size={12} style={{ color: 'var(--info)' }} />
+                                            <span style={{ color: 'var(--text)' }}>Leg {leg.leg}: {leg.from_location} ➔ {leg.hospital_name}</span>
+                                          </div>
+                                        ));
+                                      } catch(err) { return null; }
+                                    })()}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
                         );
                       })}
                     </tbody>

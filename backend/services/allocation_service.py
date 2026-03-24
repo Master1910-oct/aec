@@ -29,16 +29,88 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # ===============================
 # 🏥 Allocate Nearest Hospital
 # ===============================
-def allocate_hospital(emergency):
+SPECIALIST_RADIUS_KM = 15
+
+def allocate_hospital(emergency, from_lat, from_lng):
     """
-    Allocates nearest active hospital that:
-    1. Has available beds (> 0)
-    2. Supports the emergency type (speciality match)
-    Falls back to any available hospital if no speciality match found.
+    Returns dict:
+      {
+        "hospital": Hospital object,
+        "needs_transfer": bool,
+        "required_speciality": str or None,
+        "phase": 1 or 2
+      }
+    Returns None if no hospital available at all.
     """
+    if from_lat is None or from_lng is None:
+        return None
 
     # Primary query for active hospitals with available beds
-    hospitals = (
+    all_hospitals = (
+        Hospital.query
+        .join(Availability)
+        .filter(Hospital.is_active == True, Availability.available_beds > 0)
+        .with_for_update()
+        .all()
+    )
+    if not all_hospitals:
+        return None
+
+    emergency_type = (emergency.emergency_type or "").strip().lower()
+
+    # ── PHASE 1: Specialist within radius ──────────────
+    specialist_matches = [
+        h for h in all_hospitals
+        if emergency_type in h.get_specialities_list()
+    ]
+
+    nearby_specialists = []
+    for h in specialist_matches:
+        dist = calculate_distance(
+            from_lat, from_lng,
+            h.latitude, h.longitude
+        )
+        if dist <= SPECIALIST_RADIUS_KM:
+            nearby_specialists.append((h, dist))
+
+    if nearby_specialists:
+        # Since score_hospital doesn't exist, pick the nearest specialist
+        best = min(nearby_specialists, key=lambda x: x[1])
+        nearest_hospital = best[0]
+        if nearest_hospital.availability:
+            nearest_hospital.availability.available_beds -= 1
+        return {
+            "hospital": nearest_hospital,
+            "needs_transfer": False,
+            "required_speciality": None,
+            "phase": 1
+        }
+
+    # ── PHASE 2: Nearest any hospital fallback ─────────
+    nearest_hospital = min(
+        all_hospitals,
+        key=lambda h: calculate_distance(from_lat, from_lng, h.latitude, h.longitude)
+    )
+
+    if nearest_hospital.availability:
+        nearest_hospital.availability.available_beds -= 1
+
+    return {
+        "hospital": nearest_hospital,
+        "needs_transfer": True,
+        "required_speciality": emergency.emergency_type,
+        "phase": 2
+    }
+
+
+def find_transfer_hospital(required_speciality, from_lat, from_lng):
+    """
+    Used for transfers — finds best specialist hospital
+    with no radius limit and re-checks bed availability
+    at the exact moment of transfer request.
+    Returns Hospital object or None.
+    """
+    candidates = (
         Hospital.query
         .join(Availability)
         .filter(Hospital.is_active == True, Availability.available_beds > 0)
@@ -46,48 +118,28 @@ def allocate_hospital(emergency):
         .all()
     )
 
-    emergency_type = (emergency.emergency_type or "").strip().lower()
-
-    def _pick_nearest(candidates):
-        nearest = None
-        min_distance = float("inf")
-
-        for hospital in candidates:
-            distance = calculate_distance(
-                emergency.latitude,
-                emergency.longitude,
-                hospital.latitude,
-                hospital.longitude,
-            )
-            if distance < min_distance:
-                min_distance = distance
-                nearest = hospital
-
-        return nearest
-
-    # First pass: match by speciality
-    speciality_matched = [
-        h for h in hospitals
-        if emergency_type in h.get_specialities_list()
+    specialist_candidates = [
+        h for h in candidates
+        if (required_speciality or "").strip().lower() in h.get_specialities_list()
     ]
 
-    nearest_hospital = _pick_nearest(speciality_matched)
-
-    # Fallback: any available hospital with beds (from our initial query)
-    if not nearest_hospital:
-        nearest_hospital = _pick_nearest(hospitals)
-
-    if not nearest_hospital:
+    if not specialist_candidates:
         return None
 
-    # Reduce available beds (already joined Availability in query)
-    if nearest_hospital.availability:
-        nearest_hospital.availability.available_beds -= 1
+    scored = []
+    for h in specialist_candidates:
+        dist = calculate_distance(
+            from_lat, from_lng,
+            h.latitude, h.longitude
+        )
+        scored.append((h, dist))
 
-    # Attach hospital to emergency
-    emergency.hospital_id = nearest_hospital.hospital_id
-
-    return nearest_hospital
+    best_hospital = min(scored, key=lambda x: x[1])[0]
+    
+    if best_hospital.availability:
+        best_hospital.availability.available_beds -= 1
+        
+    return best_hospital
 
 
 # ===============================

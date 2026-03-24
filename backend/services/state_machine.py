@@ -10,7 +10,9 @@ class EmergencyStateMachine:
         "pending":     ["allocated", "cancelled"],
         "allocated":   ["en_route", "cancelled"],
         "en_route":    ["arrived"],
-        "arrived":     ["completed"],
+        "arrived":     ["first_aid", "completed"],
+        "first_aid":   ["completed", "transfer_en_route"],
+        "transfer_en_route": ["completed"],
         "in_progress": ["completed"],        # legacy compatibility
         "completed":   [],
         "cancelled":   [],

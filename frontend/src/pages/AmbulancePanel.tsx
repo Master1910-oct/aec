@@ -9,6 +9,7 @@ import LiveMap from '@/components/map/LiveMap';
 import { SeverityBadge } from '@/components/shared/SeverityBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { SLACountdown } from '@/components/shared/SLACountdown';
 import { saveLocation, getPendingCount, saveEmergencyOffline, getPendingEmergencyCount } from '@/lib/offlineStorage';
 import { useSyncManager } from '@/hooks/useSyncManager';
 import { toast } from 'sonner';
@@ -31,13 +32,7 @@ const TYPE_LABELS: Record<string, string> = {
   psychiatry: 'Psychiatry', other: 'Other',
 };
 
-const STATUS_NEXT: Record<string, string | null> = {
-  allocated: 'en_route', en_route: 'arrived', arrived: 'completed',
-};
-const STATUS_LABEL: Record<string, string> = {
-  allocated: '→ Mark En Route', en_route: '→ Mark Arrived', arrived: '✓ Mark Completed',
-};
-
+// Constants array mappings removed to favor inline dynamic rendering
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function AmbulancePanel() {
   const {
@@ -227,9 +222,23 @@ export default function AmbulancePanel() {
   const handleStatusUpdate = async (newStatus: string) => {
     if (isReadOnly || !myActiveEmergency) return;
     setStatusUpdating(true);
+    let extraPayload = {};
+    if (newStatus === "arrived") {
+        try {
+            const pos = await new Promise<GeolocationPosition>((res, rej) => 
+                 navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 }));
+            extraPayload = { accident_latitude: pos.coords.latitude, accident_longitude: pos.coords.longitude };
+            setLat(pos.coords.latitude.toFixed(6));
+            setLon(pos.coords.longitude.toFixed(6));
+        } catch (e) {
+            console.warn("GPS capture failed, sending without it");
+        }
+    }
+
     try {
-      await updateEmergencyStatus(myActiveEmergency.emergency_id, newStatus);
+      await updateEmergencyStatus(myActiveEmergency.emergency_id, newStatus, extraPayload);
       if (submitted) setSubmitted(prev => prev ? { ...prev, status: newStatus } : prev);
+      await fetchEmergencies();
     } catch (err: any) { alert(err.message || 'Failed to update status'); }
     finally { setStatusUpdating(false); }
   };
@@ -430,7 +439,14 @@ export default function AmbulancePanel() {
                   >
                     Active Assignment — ASG-{String(myActiveEmergency.emergency_id).padStart(3, '0')}
                   </span>
-                  <SeverityBadge severity={myActiveEmergency.severity} />
+                  <div className="flex items-center gap-2">
+                    <SeverityBadge severity={myActiveEmergency.severity} />
+                    <SLACountdown 
+                      dispatchSla={myActiveEmergency.dispatch_sla_deadline} 
+                      transportSla={myActiveEmergency.transport_sla_deadline} 
+                      status={myActiveEmergency.status} 
+                    />
+                  </div>
                 </div>
 
                 <div className="p-4 flex flex-col gap-4" style={{ background: 'var(--bg-surface)' }}>
@@ -474,8 +490,29 @@ export default function AmbulancePanel() {
                     </div>
                   </div>
 
-                  {/* Hospital destination */}
-                  {myActiveEmergency.hospital && (
+                  {/* Hospital destination & Transfer Legs */}
+                  {myActiveEmergency.transfer_legs ? (
+                      <div className="flex flex-col gap-2">
+                        {(() => {
+                            try {
+                              const legs = JSON.parse(myActiveEmergency.transfer_legs);
+                              return legs.map((leg: any, i: number) => (
+                                <div key={i} className="flex flex-col gap-1 p-3 rounded" style={{ background: i === legs.length - 1 ? 'var(--safe-bg)' : 'var(--bg-raised)', border: `1px solid ${i === legs.length - 1 ? 'rgba(22,163,74,0.3)' : 'var(--border)'}` }}>
+                                  <div className="flex items-center gap-2">
+                                    <Navigation size={14} style={{ color: 'var(--safe)', flexShrink: 0 }} />
+                                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 14 }}>
+                                      Leg {leg.leg}: {leg.from_location} ➔ {leg.hospital_name}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 22, textTransform: 'capitalize' }}>
+                                    Type: {leg.type}
+                                  </span>
+                                </div>
+                              ));
+                            } catch (e) { return null; }
+                        })()}
+                      </div>
+                  ) : myActiveEmergency.hospital ? (
                     <div
                       className="flex items-center gap-3 rounded p-3"
                       style={{ background: 'var(--safe-bg)', border: '1px solid rgba(22,163,74,0.3)' }}
@@ -489,6 +526,10 @@ export default function AmbulancePanel() {
                           {myActiveEmergency.hospital.address}
                         </p>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 text-sm rounded bg-[var(--warning-bg)] border-[1px solid rgba(245,158,11,0.3)]" style={{ color: '#F59E0B' }}>
+                       Hospital allocation pending GPS arrival...
                     </div>
                   )}
 
@@ -505,22 +546,35 @@ export default function AmbulancePanel() {
                     </div>
                   )}
 
-                  {/* Status update button — full width, 52px min-height for touch */}
-                  {!isReadOnly &&
-                    !['completed', 'cancelled', 'escalated'].includes(myActiveEmergency.status) &&
-                    STATUS_NEXT[myActiveEmergency.status] && (
-                      <button
-                        onClick={() => handleStatusUpdate(STATUS_NEXT[myActiveEmergency.status]!)}
-                        disabled={statusUpdating}
-                        className="btn-base btn-primary w-full"
-                        style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}
-                      >
-                        {statusUpdating
-                          ? <Loader2 size={18} className="animate-spin" />
-                          : STATUS_LABEL[myActiveEmergency.status]
-                        }
-                      </button>
-                    )}
+                  {/* Action Buttons */}
+                  {!isReadOnly && !['completed', 'cancelled', 'escalated'].includes(myActiveEmergency.status) && (
+                    <>
+                      {myActiveEmergency.status === 'allocated' && (
+                        <button onClick={() => handleStatusUpdate('en_route')} disabled={statusUpdating} className="btn-base btn-primary w-full" style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}>{statusUpdating ? <Loader2 size={18} className="animate-spin" /> : '→ Mark En Route'}</button>
+                      )}
+                      {myActiveEmergency.status === 'en_route' && (
+                        <button onClick={() => handleStatusUpdate('arrived')} disabled={statusUpdating} className="btn-base btn-primary w-full" style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}>{statusUpdating ? <Loader2 size={18} className="animate-spin" /> : '→ On Scene (Capture GPS)'}</button>
+                      )}
+                      {myActiveEmergency.status === 'arrived' && (
+                        <button onClick={() => handleStatusUpdate(myActiveEmergency.needs_transfer ? 'first_aid' : 'completed')} disabled={statusUpdating} className="btn-base btn-primary w-full" style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}>{statusUpdating ? <Loader2 size={18} className="animate-spin" /> : (myActiveEmergency.needs_transfer ? '→ Begin First Aid' : '✓ Complete Dropoff')}</button>
+                      )}
+                      {myActiveEmergency.status === 'first_aid' && (
+                        myActiveEmergency.needs_transfer ? (
+                            <button onClick={async () => {
+                                setStatusUpdating(true);
+                                try { await useStore.getState().initiateTransfer(myActiveEmergency.emergency_id); await fetchEmergencies(); }
+                                catch (err: any) { alert(err.message || 'Transfer failed'); }
+                                finally { setStatusUpdating(false); }
+                            }} disabled={statusUpdating} className="btn-base btn-primary w-full" style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}>{statusUpdating ? <Loader2 size={18} className="animate-spin" /> : '🔄 Initiate Transfer'}</button>
+                        ) : (
+                            <button onClick={() => handleStatusUpdate('completed')} disabled={statusUpdating} className="btn-base btn-primary w-full" style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}>{statusUpdating ? <Loader2 size={18} className="animate-spin" /> : '✓ Mark Completed'}</button>
+                        )
+                      )}
+                      {myActiveEmergency.status === 'transfer_en_route' && (
+                        <button onClick={() => handleStatusUpdate('completed')} disabled={statusUpdating} className="btn-base btn-primary w-full" style={{ minHeight: 52, fontSize: 15, letterSpacing: '2px' }}>{statusUpdating ? <Loader2 size={18} className="animate-spin" /> : '✓ Transfer Completed'}</button>
+                      )}
+                    </>
+                  )}
 
                   {myActiveEmergency.status === 'completed' && (
                     <div className="flex items-center justify-center gap-2" style={{ color: 'var(--safe)' }}>
