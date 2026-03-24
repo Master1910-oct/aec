@@ -25,5 +25,5 @@ class Config:
     # CORS — add your Vercel URL here after Step 14
     ALLOWED_ORIGINS = [
         "http://localhost:5173",
-        "https://aes-frontend.vercel.app"   # ← update this after Vercel deploy
+        "https://aec-three.vercel.app"   # ← update this after Vercel deploy
     ]
