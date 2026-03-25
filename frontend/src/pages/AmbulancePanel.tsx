@@ -117,7 +117,17 @@ export default function AmbulancePanel() {
     if (currentUser?.role === 'ambulance') {
         fetchActiveDispatch();
     }
-  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies, fetchActiveDispatch, currentUser?.role]);
+    
+    // 🟠 Polling fallback (ensures stale tabs sync eventually)
+    const interval = setInterval(() => {
+        if (currentUser?.role === 'ambulance') {
+            fetchActiveDispatch();
+            fetchMyAmbulance().then(amb => amb && setMyAmbulance(amb));
+        }
+    }, 15000); 
+
+    return () => clearInterval(interval);
+  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies, fetchActiveDispatch, currentUser?.role, fetchMyAmbulance]);
 
   // ── Offline / online detection ────────────────────────────────────────────
   useEffect(() => {
@@ -461,11 +471,23 @@ export default function AmbulancePanel() {
             </div>
 
             {/* Status pill */}
-            {myActiveEmergency ? (
-              <StatusBadge status={myActiveEmergency.status} />
-            ) : (
-              <span className="badge badge-available">AVAILABLE</span>
-            )}
+            <div className="flex items-center gap-2">
+              {myActiveEmergency ? (
+                <StatusBadge status={myActiveEmergency.status} />
+              ) : activeDispatch ? (
+                <StatusBadge status="ON_CALL" />
+              ) : (
+                <span className="badge badge-available">AVAILABLE</span>
+              )}
+              
+              <button 
+                onClick={() => { fetchStoreData(); fetchActiveDispatch(); if (!isReadOnly) detectGPS(); }}
+                className="flex items-center justify-center p-1 rounded-full hover:bg-black/10 transition-colors"
+                title="Refresh Status"
+              >
+                <Activity size={14} className={statusUpdating ? 'animate-spin' : ''} />
+              </button>
+            </div>
 
             {/* GPS broadcast / connectivity status badge */}
             {isSyncing ? (
