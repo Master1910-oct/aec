@@ -54,7 +54,7 @@ def get_hospital_emergencies(hospital_id):
     if user["role"] == "hospital" and user.get("entity_id") != hospital_id:
         return error_response("Access denied", 403)
 
-    active_statuses = ["pending", "allocated", "en_route", "arrived", "in_progress", "escalated"]
+    active_statuses = ["pending", "allocated", "en_route", "arrived", "first_aid", "transfer_en_route", "in_progress", "escalated"]
     resolved_statuses = ["completed", "cancelled"]
 
     active = EmergencyRequest.query.filter(

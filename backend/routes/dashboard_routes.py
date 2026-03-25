@@ -23,7 +23,7 @@ def get_dashboard_stats():
     escalated = EmergencyRequest.query.filter_by(status="escalated").count()
 
     # SLA breaches: active emergencies past their deadline
-    active_statuses = ["pending", "allocated", "en_route", "arrived", "in_progress"]
+    active_statuses = ["pending", "allocated", "en_route", "arrived", "first_aid", "transfer_en_route", "in_progress", "escalated"]
     sla_breached = EmergencyRequest.query.filter(
         EmergencyRequest.status.in_(active_statuses),
         EmergencyRequest.sla_deadline < now
