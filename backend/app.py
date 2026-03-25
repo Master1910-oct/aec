@@ -27,22 +27,22 @@ def create_app():
     # ─────────────────────────────────────────
     # CORS — supports multiple origins via comma-separated env var
     # ─────────────────────────────────────────
-    allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
-    allowed_origins = [o.strip() for o in allowed_origins_raw.split(",")]
+    # 🌟 Dynamic CORS for Vercel Previews
+    # Allows all Vercel subdomains + localhost + specific backend URL
+    allowed_origins = [
+        "http://localhost:5173",
+        "https://aec-three.vercel.app", 
+        "https://aec-production-2877.up.railway.app"
+    ]
     
-    # 🌟 NEW: Add specific Vercel preview origin from logs
-    v1 = "https://aec-8y106srcv-master1910-octs-projects.vercel.app"
-    v2 = "https://aec-ds66tolub-master1910-octs-projects.vercel.app"
-    for v in [v1, v2]:
-        if v not in allowed_origins:
-            allowed_origins.append(v)
-
-    CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
-
+    # Socket.IO is picky, using '*' is safest for dynamic preview URLs in this dev phase
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    
     # ─────────────────────────────────────────
     # Extensions
     # ─────────────────────────────────────────
     db.init_app(app)
+    socketio.init_app(app, cors_allowed_origins="*")
     # 💥 Fix: Add pool_pre_ping to auto-reconnect on dropped MySQL connections
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
     

@@ -1,5 +1,6 @@
 gunicorn
-eventlet
+gevent
+gevent-websocket
 flask
 flask-socketio
 flask-sqlalchemy
