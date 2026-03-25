@@ -31,7 +31,7 @@ def create_app():
     allowed_origins = [o.strip() for o in allowed_origins_raw.split(",")]
     
     # 🌟 NEW: Add specific Vercel preview origin from logs
-    vercel_preview = "https://aec-gf02uxww9-master1910-octs-projects.vercel.app"
+    vercel_preview = "https://aec-8y106srcv-master1910-octs-projects.vercel.app"
     if vercel_preview not in allowed_origins:
         allowed_origins.append(vercel_preview)
 
