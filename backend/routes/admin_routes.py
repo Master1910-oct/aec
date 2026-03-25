@@ -216,7 +216,7 @@ def dispatch_to_scene():
                 nearest_amb = available_ambulances[0]
 
             # Update ambulance status
-            nearest_amb.status = "DISPATCHED" # Using DISPATCHED as requested
+            nearest_amb.status = "ON_CALL"
 
             # Create dispatch record
             dispatch = SceneDispatch(
