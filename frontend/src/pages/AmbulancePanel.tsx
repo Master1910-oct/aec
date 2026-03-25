@@ -456,7 +456,6 @@ export default function AmbulancePanel() {
                       { label: 'Assignment', value: `ASG-${String(myActiveEmergency.emergency_id).padStart(3, '0')}` },
                       { label: 'ETA', value: etaMin != null ? `${etaMin} min` : '— min' },
                       { label: 'Distance', value: distanceKm != null ? `${distanceKm.toFixed(1)} km` : '— km' },
-                      { label: 'Hospital Ack', value: myActiveEmergency.acknowledged ? 'Accepted' : 'Pending' },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex flex-col gap-1">
                         <span className="section-label" style={{ fontSize: 9 }}>{label}</span>
@@ -527,11 +526,7 @@ export default function AmbulancePanel() {
                         </p>
                       </div>
                     </div>
-                  ) : (
-                    <div className="p-3 text-sm rounded bg-[var(--warning-bg)] border-[1px solid rgba(245,158,11,0.3)]" style={{ color: '#F59E0B' }}>
-                       Hospital allocation pending GPS arrival...
-                    </div>
-                  )}
+                  ) : null}
 
                   {/* SLA breach */}
                   {myActiveEmergency.is_overdue && (

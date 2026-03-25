@@ -434,11 +434,6 @@ export default function HospitalDashboard() {
                             </span>
                             <SeverityBadge severity={e.severity} />
                             <StatusBadge status={e.status} />
-                            {e.acknowledged && (
-                              <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--safe)' }}>
-                                <CheckCircle2 size={11} /> Accepted
-                              </span>
-                            )}
                             <SLACountdown 
                               dispatchSla={e.dispatch_sla_deadline} 
                               transportSla={e.transport_sla_deadline} 
@@ -480,25 +475,7 @@ export default function HospitalDashboard() {
                             </span>
                           </div>
                         </div>
-  
-                        {!e.acknowledged && !isReadOnly && (
-                          /* Mobile: full-width button stacked below info; sm+: inline */
-                          <button
-                            onClick={() => handleAcknowledge(e.emergency_id)}
-                            disabled={acknowledging === e.emergency_id}
-                            className="btn-base w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 mt-2 sm:mt-0"
-                            style={{
-                              minHeight: 48, padding: '0 14px', fontSize: 13,
-                              background: 'var(--safe)', color: '#fff',
-                              borderRadius: 'var(--radius)', border: 'none',
-                            }}
-                          >
-                            {acknowledging === e.emergency_id
-                              ? <Loader2 size={13} className="animate-spin" />
-                              : <><CheckCircle2 size={13} /> Acknowledge</>
-                            }
-                          </button>
-                        )}
+
                       </div>
                     </div>
                   );

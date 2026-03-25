@@ -31,7 +31,8 @@ class EmergencyRequest(db.Model):
     status = db.Column(
         db.Enum(
             "pending", "allocated", "en_route", "arrived",
-            "in_progress", "completed", "cancelled", "escalated",
+            "first_aid", "transfer_en_route", "in_progress",
+            "completed", "cancelled", "escalated",
             name="emergency_status"
         ),
         default="pending", index=True

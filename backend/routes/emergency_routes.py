@@ -185,6 +185,7 @@ def update_emergency_status(emergency_id):
                     "arrived_at": None,
                     "departed_at": None
                 }])
+                emergency.acknowledged = True
 
                 db.session.commit()
 
