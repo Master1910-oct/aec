@@ -21,4 +21,6 @@ class EmergencyStateMachine:
 
     @classmethod
     def can_transition(cls, current_status, new_status):
+        if current_status == new_status:
+            return True
         return new_status in cls.allowed_transitions.get(current_status, [])
