@@ -46,6 +46,10 @@ def create_app():
     
     socketio.init_app(app, cors_allowed_origins=allowed_origins)
     Migrate(app, db)
+    
+    # ── Safe Table Provisioning ──────────────────
+    with app.app_context():
+        db.create_all()
 
     # ─────────────────────────────────────────
     # Rate Limiter
