@@ -40,7 +40,7 @@ export default function AmbulancePanel() {
     updateAmbulanceLocation, emergencies, fetchEmergencies,
     isOffline, pendingSyncCount, isSyncing, pendingEmergencyCount,
     setOfflineStatus, setSyncCount, setPendingEmergencyCount,
-    activeDispatch, markArrivedAtScene,
+    activeDispatch, markArrivedAtScene, fetchActiveDispatch,
   } = useStore();
 
   const [description, setDescription] = useState('');
@@ -114,7 +114,10 @@ export default function AmbulancePanel() {
     fetchStoreData();
     if (!isReadOnly) detectGPS();
     fetchEmergencies();
-  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies]);
+    if (currentUser?.role === 'ambulance') {
+        fetchActiveDispatch();
+    }
+  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies, fetchActiveDispatch, currentUser?.role]);
 
   // ── Offline / online detection ────────────────────────────────────────────
   useEffect(() => {

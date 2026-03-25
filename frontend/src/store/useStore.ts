@@ -144,6 +144,7 @@ interface AppState {
   fetchAdminUsers: () => Promise<void>;
   fetchMyHospital: () => Promise<BackendHospital | null>;
   fetchMyAmbulance: () => Promise<BackendAmbulance | null>;
+  fetchActiveDispatch: () => Promise<void>;
   submitEmergency: (payload: {
     accident_description: string;
     emergency_type: string;
@@ -274,6 +275,17 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await api.get<{ data: BackendAmbulance }>('/api/v1/ambulance/me');
       return res.data;
     } catch { return null; }
+  },
+
+  fetchActiveDispatch: async () => {
+    try {
+      const res = await api.get<{ data: ActiveDispatch | null }>('/api/v1/ambulance/dispatch');
+      const data = res.data;
+      if (data) {
+          localStorage.setItem('aes_active_dispatch', JSON.stringify(data));
+          set({ activeDispatch: data });
+      }
+    } catch (err) { console.error('fetchActiveDispatch failed', err); }
   },
 
   submitEmergency: async (payload) => {

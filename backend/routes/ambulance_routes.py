@@ -1,7 +1,7 @@
 from flask import Blueprint, request, g
 from datetime import datetime
 from database.db import db
-from models import Ambulance, EmergencyRequest, Hospital, LocationHistory
+from models import Ambulance, EmergencyRequest, Hospital, LocationHistory, SceneDispatch
 from extensions.socketio_ext import socketio
 from utils.response import success_response, error_response
 from utils.decorators import token_required, roles_required
@@ -217,3 +217,30 @@ def get_my_ambulance():
         return error_response("Ambulance not found", 404)
 
     return success_response(message="Ambulance fetched", data=ambulance.to_dict())
+
+
+# ==========================================
+# 📍 GET ACTIVE SCENE DISPATCH
+# ==========================================
+@ambulance_bp.route("/dispatch", methods=["GET"])
+@token_required
+@roles_required("ambulance")
+def get_active_dispatch():
+    try:
+        ambulance_id = g.current_user.get("entity_id")
+        if not ambulance_id:
+            return error_response("No linked ambulance found", 404)
+
+        # Find latest active dispatch ('en_route_to_scene') for this ambulance
+        dispatch = SceneDispatch.query.filter_by(
+            assigned_ambulance_id=ambulance_id,
+            status='en_route_to_scene'
+        ).order_by(SceneDispatch.dispatched_at.desc()).first()
+
+        if not dispatch:
+            return success_response(message="No active dispatch", data=None)
+
+        return success_response(message="Active dispatch fetched", data=dispatch.to_dict())
+
+    except Exception as e:
+        return error_response(str(e), 500)
