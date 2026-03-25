@@ -29,6 +29,11 @@ def create_app():
     # ─────────────────────────────────────────
     allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
     allowed_origins = [o.strip() for o in allowed_origins_raw.split(",")]
+    
+    # 🌟 NEW: Add specific Vercel preview origin from logs
+    vercel_preview = "https://aec-gf02uxww9-master1910-octs-projects.vercel.app"
+    if vercel_preview not in allowed_origins:
+        allowed_origins.append(vercel_preview)
 
     CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
@@ -36,6 +41,9 @@ def create_app():
     # Extensions
     # ─────────────────────────────────────────
     db.init_app(app)
+    # 💥 Fix: Add pool_pre_ping to auto-reconnect on dropped MySQL connections
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
+    
     socketio.init_app(app, cors_allowed_origins=allowed_origins)
     Migrate(app, db)
 
