@@ -49,7 +49,26 @@ def create_app():
     
     # ── Safe Table Provisioning ──────────────────
     with app.app_context():
+        # First create missing tables
         db.create_all()
+        
+        # Then ensure missing columns in existing tables (manual migrations)
+        try:
+            from sqlalchemy import text
+            with db.engine.connect() as conn:
+                # Add columns if they don't exist
+                # MySQL logic: ADD COLUMN ...
+                try:
+                    conn.execute(text("ALTER TABLE scene_dispatches ADD COLUMN latitude FLOAT"))
+                    conn.commit()
+                except: pass # Column already exists or table doesn't
+                
+                try:
+                    conn.execute(text("ALTER TABLE scene_dispatches ADD COLUMN longitude FLOAT"))
+                    conn.commit()
+                except: pass
+        except Exception as e:
+            app.logger.error(f"Migration error: {e}")
 
     # ─────────────────────────────────────────
     # Rate Limiter
