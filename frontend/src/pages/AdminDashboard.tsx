@@ -90,13 +90,11 @@ export default function AdminDashboard() {
     description: '',
     emergency_type: 'trauma',
     severity: 'high',
-    latitude: '',
-    longitude: '',
+    caller_location: '',
   });
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState('');
   const [dispatchResult, setDispatchResult] = useState<any>(null);
-  const [dispatchGpsLoading, setDispatchGpsLoading] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
@@ -170,29 +168,13 @@ export default function AdminDashboard() {
     finally { setSavingSpecs(false); }
   };
 
-  const detectDispatchGPS = () => {
-    if (!navigator.geolocation) return;
-    setDispatchGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setDispatchForm(p => ({
-          ...p,
-          latitude: pos.coords.latitude.toFixed(6),
-          longitude: pos.coords.longitude.toFixed(6),
-        }));
-        setDispatchGpsLoading(false);
-      },
-      () => setDispatchGpsLoading(false),
-      { timeout: 8000 }
-    );
-  };
 
   const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     setDispatchError('');
     setDispatchResult(null);
-    if (!dispatchForm.latitude || !dispatchForm.longitude) {
-      setDispatchError('Location is required'); return;
+    if (!dispatchForm.caller_location) {
+      setDispatchError('Location description is required'); return;
     }
     setDispatching(true);
     try {
@@ -201,11 +183,10 @@ export default function AdminDashboard() {
         description: dispatchForm.description,
         emergency_type: dispatchForm.emergency_type,
         severity: dispatchForm.severity,
-        latitude: parseFloat(dispatchForm.latitude),
-        longitude: parseFloat(dispatchForm.longitude),
+        caller_location: dispatchForm.caller_location,
       });
       setDispatchResult(res.data);
-      setDispatchForm({ patient_name: '', description: '', emergency_type: 'trauma', severity: 'high', latitude: '', longitude: '' });
+      setDispatchForm({ patient_name: '', description: '', emergency_type: 'trauma', severity: 'high', caller_location: '' });
       await loadAll();
     } catch (err: any) {
       setDispatchError(err.response?.data?.message || err.message || 'Dispatch failed');
@@ -799,17 +780,16 @@ export default function AdminDashboard() {
                 <textarea className="input-aes py-3 resize-none h-20" value={dispatchForm.description} onChange={e => setDispatchForm(p => ({ ...p, description: e.target.value }))} placeholder="Injuries, landmarks, hazards..." />
               </div>
 
-              <div className="flex flex-col gap-3 md:col-span-2 p-4 border rounded bg-[var(--bg-raised)]">
-                <div className="flex items-center justify-between">
-                  <label className="section-label flex items-center gap-2"><MapPin size={12} /> Extraction Point</label>
-                  <button type="button" onClick={detectDispatchGPS} className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color: 'var(--info)', fontFamily: 'Barlow Condensed', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase' }}>
-                    {dispatchGpsLoading ? 'Locking...' : 'Auto-Lock GPS'}
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="number" step="any" className="input-aes font-['Barlow_Condensed'] font-bold text-base" placeholder="LAT" value={dispatchForm.latitude} onChange={e => setDispatchForm(p => ({ ...p, latitude: e.target.value }))} required />
-                  <input type="number" step="any" className="input-aes font-['Barlow_Condensed'] font-bold text-base" placeholder="LNG" value={dispatchForm.longitude} onChange={e => setDispatchForm(p => ({ ...p, longitude: e.target.value }))} required />
-                </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="section-label">Location (as described by caller)</label>
+                <input 
+                  type="text" 
+                  className="input-aes" 
+                  value={dispatchForm.caller_location} 
+                  onChange={e => setDispatchForm(p => ({ ...p, caller_location: e.target.value }))} 
+                  placeholder="Street name, landmark, or area described by caller" 
+                  required 
+                />
               </div>
             </div>
 
