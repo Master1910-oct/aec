@@ -152,9 +152,14 @@ def allocate_ambulance(emergency, ambulance_id=None):
     """
 
     if ambulance_id:
+        # 🚑 If id is provided, it's a self-report. 
+        # Allow transition from AVAILABLE or ON_CALL (for 108 flow)
         ambulance = (
             Ambulance.query
-            .filter_by(ambulance_id=ambulance_id, status="AVAILABLE")
+            .filter(
+                Ambulance.ambulance_id == ambulance_id,
+                Ambulance.status.in_(["AVAILABLE", "ON_CALL"])
+            )
             .with_for_update()
             .first()
         )
