@@ -111,6 +111,11 @@ export default function AmbulancePanel() {
   }, [currentUser?.role, ambulances.length, fetchAmbulances, fetchMyAmbulance]);
 
   useEffect(() => {
+    if (currentUser) {
+        console.log("Logged in user identity:", currentUser);
+        // Temporary diagnostic toast
+        toast.info(`Identity: ${currentUser.role} #${currentUser.entity_id || 'None'} status: ${isOffline ? 'OFFLINE' : 'ONLINE'}`);
+    }
     fetchStoreData();
     if (!isReadOnly) detectGPS();
     fetchEmergencies();
@@ -127,7 +132,7 @@ export default function AmbulancePanel() {
     }, 15000); 
 
     return () => clearInterval(interval);
-  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies, fetchActiveDispatch, currentUser?.role, fetchMyAmbulance]);
+  }, [fetchStoreData, detectGPS, isReadOnly, fetchEmergencies, fetchActiveDispatch, currentUser, fetchMyAmbulance, isOffline]);
 
   // ── Offline / online detection ────────────────────────────────────────────
   useEffect(() => {
@@ -335,7 +340,16 @@ export default function AmbulancePanel() {
   return (
     <div className="flex flex-col gap-4 animate-slide-in-up pb-10">
 
-      {/* ── 108 Dispatch Received Banner (Change 6) ── */}
+      {/* ── 🕵️ Diagnostics (Hidden for now, but inspectable) ── */}
+      <div className="hidden" id="aes-debug-state">
+        {JSON.stringify({ 
+           entityId: currentUser?.entity_id, 
+           role: currentUser?.role,
+           hasDispatch: !!activeDispatch,
+           dispatchId: activeDispatch?.dispatch_id
+        })}
+      </div>
+
       {activeDispatch && (
         <div 
           className="card overflow-hidden border-2 animate-pulse-subtle" 
