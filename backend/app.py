@@ -31,9 +31,11 @@ def create_app():
     allowed_origins = [o.strip() for o in allowed_origins_raw.split(",")]
     
     # 🌟 NEW: Add specific Vercel preview origin from logs
-    vercel_preview = "https://aec-8y106srcv-master1910-octs-projects.vercel.app"
-    if vercel_preview not in allowed_origins:
-        allowed_origins.append(vercel_preview)
+    v1 = "https://aec-8y106srcv-master1910-octs-projects.vercel.app"
+    v2 = "https://aec-ds66tolub-master1910-octs-projects.vercel.app"
+    for v in [v1, v2]:
+        if v not in allowed_origins:
+            allowed_origins.append(v)
 
     CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
