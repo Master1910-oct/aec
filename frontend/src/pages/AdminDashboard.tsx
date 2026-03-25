@@ -86,10 +86,9 @@ export default function AdminDashboard() {
 
   // ── 108 Dispatch
   const [dispatchForm, setDispatchForm] = useState({
-    patient_name: '',
+    caller_name: '',
+    callback_number: '',
     description: '',
-    emergency_type: 'trauma',
-    severity: 'high',
     caller_location: '',
   });
   const [dispatching, setDispatching] = useState(false);
@@ -173,23 +172,26 @@ export default function AdminDashboard() {
     e.preventDefault();
     setDispatchError('');
     setDispatchResult(null);
-    if (!dispatchForm.caller_location) {
-      setDispatchError('Location description is required'); return;
+    
+    const { caller_name, callback_number, description, caller_location } = dispatchForm;
+    if (!caller_name || !callback_number || !description || !caller_location) {
+      setDispatchError('All fields (Name, Callback, Description, Location) are required'); 
+      return;
     }
+
     setDispatching(true);
     try {
-      const res = await api.post('/api/v1/admin/dispatch', {
-        patient_name: dispatchForm.patient_name || 'Unknown Caller',
+      const res = await useStore.getState().dispatchToScene({
+        caller_name: dispatchForm.caller_name,
+        callback_number: dispatchForm.callback_number,
         description: dispatchForm.description,
-        emergency_type: dispatchForm.emergency_type,
-        severity: dispatchForm.severity,
         caller_location: dispatchForm.caller_location,
       });
-      setDispatchResult(res.data);
-      setDispatchForm({ patient_name: '', description: '', emergency_type: 'trauma', severity: 'high', caller_location: '' });
+      setDispatchResult(res);
+      setDispatchForm({ caller_name: '', callback_number: '', description: '', caller_location: '' });
       await loadAll();
     } catch (err: any) {
-      setDispatchError(err.response?.data?.message || err.message || 'Dispatch failed');
+      setDispatchError(err.message || 'Dispatch failed');
     } finally {
       setDispatching(false);
     }
@@ -738,56 +740,59 @@ export default function AdminDashboard() {
             {dispatchResult && (
               <div className="p-4 rounded border flex flex-col gap-3" style={{ background: 'var(--safe-bg)', borderColor: 'rgba(22,163,74,0.3)' }}>
                 <span className="section-label" style={{ color: 'var(--safe)' }}>Dispatch Confirmed</span>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Assign ID</span>
-                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16 }}>ASG-{String(dispatchResult.emergency_id).padStart(3, '0')}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Ambulance</span>
-                    <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16 }}>{dispatchResult.allocated_ambulance ?? 'AWAITING'}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Hospital</span>
-                    <span className="truncate" style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 16 }}>{dispatchResult.allocated_hospital ?? 'AWAITING'}</span>
-                  </div>
+                <div className="flex flex-col gap-1">
+                  <span style={{ color: 'var(--text)', fontSize: 13 }}>
+                    Ambulance <span style={{ fontWeight: 700 }}>{dispatchResult.unit_name}</span> dispatched to scene.
+                  </span>
+                  <span className="text-[10px] uppercase" style={{ color: 'var(--text-dim)' }}>Assign ID: ASG-{String(dispatchResult.dispatch_id).padStart(3, '0')}</span>
                 </div>
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="flex flex-col gap-2 md:col-span-2">
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-2">
                 <label className="section-label">Caller / Patient Name</label>
-                <input type="text" className="input-aes" value={dispatchForm.patient_name} onChange={e => setDispatchForm(p => ({ ...p, patient_name: e.target.value }))} placeholder="E.g. John Doe / Bystander" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="section-label">Condition / Protocol</label>
-                <select className="input-aes relative" value={dispatchForm.emergency_type} onChange={e => setDispatchForm(p => ({ ...p, emergency_type: e.target.value }))}>
-                  {EMERGENCY_TYPE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="section-label">Severity Override</label>
-                <select className="input-aes" value={dispatchForm.severity} onChange={e => setDispatchForm(p => ({ ...p, severity: e.target.value }))}>
-                  <option value="critical">CRITICAL (5 MIN SLA)</option>
-                  <option value="high">HIGH (10 MIN SLA)</option>
-                  <option value="medium">MEDIUM (20 MIN SLA)</option>
-                  <option value="low">LOW (30 MIN SLA)</option>
-                </select>
-              </div>
-              <div className="flex flex-col gap-2 md:col-span-2">
-                <label className="section-label">Incident Description</label>
-                <textarea className="input-aes py-3 resize-none h-20" value={dispatchForm.description} onChange={e => setDispatchForm(p => ({ ...p, description: e.target.value }))} placeholder="Injuries, landmarks, hazards..." />
+                <input 
+                   type="text" 
+                   className="input-aes" 
+                   value={dispatchForm.caller_name} 
+                   onChange={e => setDispatchForm(p => ({ ...p, caller_name: e.target.value }))} 
+                   placeholder="Name of caller or patient" 
+                   required 
+                />
               </div>
 
-              <div className="flex flex-col gap-2 md:col-span-2">
+              <div className="flex flex-col gap-2">
+                <label className="section-label">Callback Number</label>
+                <input 
+                   type="tel" 
+                   className="input-aes" 
+                   value={dispatchForm.callback_number} 
+                   onChange={e => setDispatchForm(p => ({ ...p, callback_number: e.target.value }))} 
+                   placeholder="Phone number of the caller" 
+                   required 
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="section-label">Incident Description</label>
+                <textarea 
+                  className="input-aes py-3 resize-none h-24" 
+                  value={dispatchForm.description} 
+                  onChange={e => setDispatchForm(p => ({ ...p, description: e.target.value }))} 
+                  placeholder="What happened? Injuries, vehicle involved..." 
+                  required
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
                 <label className="section-label">Location (as described by caller)</label>
                 <input 
                   type="text" 
                   className="input-aes" 
                   value={dispatchForm.caller_location} 
                   onChange={e => setDispatchForm(p => ({ ...p, caller_location: e.target.value }))} 
-                  placeholder="Street name, landmark, or area described by caller" 
+                  placeholder="Street, landmark, or area as told by caller" 
                   required 
                 />
               </div>

@@ -108,6 +108,15 @@ export interface SlaBreachEvent {
   received_at: string;
 }
 
+export interface ActiveDispatch {
+  dispatch_id: number;
+  caller_name: string;
+  callback_number: string;
+  description: string;
+  caller_location: string;
+  dispatched_at: string;
+}
+
 interface AppState {
   currentUser: CurrentUser | null;
   activeRole: 'admin' | 'hospital' | 'ambulance';
@@ -117,8 +126,8 @@ interface AppState {
   stats: SystemStats | null;
   adminUsers: AdminUser[];
   slaBreaches: SlaBreachEvent[];
-  // GAP 1 — socket connection status
   isSocketConnected: boolean;
+  activeDispatch: ActiveDispatch | null;
 
   setCurrentUser: (u: CurrentUser | null) => void;
   setActiveRole: (r: 'admin' | 'hospital' | 'ambulance') => void;
@@ -153,6 +162,16 @@ interface AppState {
   dismissSlaBreach: (emergencyId: number) => void;
   logout: () => void;
 
+  // 108 Dispatch Actions
+  setActiveDispatch: (d: ActiveDispatch | null) => void;
+  dispatchToScene: (payload: {
+    caller_name: string;
+    callback_number: string;
+    description: string;
+    caller_location: string;
+  }) => Promise<{ dispatch_id: number; unit_name: string }>;
+  markArrivedAtScene: (dispatchId: number) => Promise<void>;
+
   // ── Offline GPS sync ────────────────────────────────────────────────────────
   isOffline: boolean;
   pendingSyncCount: number;
@@ -176,6 +195,10 @@ export const useStore = create<AppState>((set, get) => ({
   adminUsers: [],
   slaBreaches: [],
   isSocketConnected: true,
+  activeDispatch: (() => {
+    const saved = localStorage.getItem('aes_active_dispatch');
+    return saved ? JSON.parse(saved) : null;
+  })(),
 
   // Offline GPS sync state
   isOffline: false,
@@ -338,7 +361,24 @@ export const useStore = create<AppState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('aes_auth_token');
-    set({ currentUser: null, slaBreaches: [] });
+    localStorage.removeItem('aes_active_dispatch');
+    set({ currentUser: null, slaBreaches: [], activeDispatch: null });
+  },
+
+  setActiveDispatch: (d) => {
+    if (d) localStorage.setItem('aes_active_dispatch', JSON.stringify(d));
+    else localStorage.removeItem('aes_active_dispatch');
+    set({ activeDispatch: d });
+  },
+
+  dispatchToScene: async (payload) => {
+    const res = await api.post<{ data: { dispatch_id: number; unit_name: string } }>('/api/v1/admin/dispatch-to-scene', payload);
+    return res.data;
+  },
+
+  markArrivedAtScene: async (dispatchId) => {
+    await api.patch(`/api/v1/admin/dispatch-to-scene/${dispatchId}`, { status: 'arrived' });
+    get().setActiveDispatch(null);
   },
 
   // ── Offline GPS sync actions ─────────────────────────────────────────────────

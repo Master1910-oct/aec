@@ -40,6 +40,7 @@ export default function AmbulancePanel() {
     updateAmbulanceLocation, emergencies, fetchEmergencies,
     isOffline, pendingSyncCount, isSyncing, pendingEmergencyCount,
     setOfflineStatus, setSyncCount, setPendingEmergencyCount,
+    activeDispatch, markArrivedAtScene,
   } = useStore();
 
   const [description, setDescription] = useState('');
@@ -219,6 +220,26 @@ export default function AmbulancePanel() {
     } finally { setSubmitting(false); }
   };
 
+  const handleArrivedAtScene = async () => {
+    if (!activeDispatch) return;
+    const desc = activeDispatch.description;
+    const id = activeDispatch.dispatch_id;
+    setStatusUpdating(true);
+    try {
+      await markArrivedAtScene(id);
+      setDescription(desc); // Pre-fill
+      toast.success('Successfully arrived at scene');
+      
+      // Auto-scroll to form
+      const form = document.querySelector('form');
+      if (form) form.scrollIntoView({ behavior: 'smooth' });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to confirm arrival');
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
   const handleStatusUpdate = async (newStatus: string) => {
     if (isReadOnly || !myActiveEmergency) return;
     setStatusUpdating(true);
@@ -285,6 +306,75 @@ export default function AmbulancePanel() {
    */
   return (
     <div className="flex flex-col gap-4 animate-slide-in-up pb-10">
+
+      {/* ── 108 Dispatch Received Banner (Change 6) ── */}
+      {activeDispatch && (
+        <div 
+          className="card overflow-hidden border-2 animate-pulse-subtle" 
+          style={{ 
+            borderColor: 'var(--critical)', 
+            background: 'var(--critical-bg)',
+            boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.2)'
+          }}
+        >
+          <div className="p-4 sm:p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 24, color: 'var(--critical)', letterSpacing: '1px' }}>
+                DISPATCH RECEIVED
+              </h2>
+              <span className="badge badge-critical animate-pulse">URGENT</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <span className="section-label" style={{ color: 'var(--critical)', opacity: 0.8 }}>Caller Name</span>
+                <span className="font-bold text-lg">{activeDispatch.caller_name}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="section-label" style={{ color: 'var(--critical)', opacity: 0.8 }}>Callback Number</span>
+                <a href={`tel:${activeDispatch.callback_number}`} className="font-bold text-lg text-blue-500 underline">
+                  {activeDispatch.callback_number}
+                </a>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="section-label" style={{ color: 'var(--critical)', opacity: 0.8 }}>Location (Desc)</span>
+              <span className="font-bold text-base bg-white/50 p-2 rounded border border-[var(--critical-br)]">
+                {activeDispatch.caller_location}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="section-label" style={{ color: 'var(--critical)', opacity: 0.8 }}>Description</span>
+              <p className="text-sm">{activeDispatch.description}</p>
+            </div>
+
+            <div className="flex items-center justify-between text-xs opacity-70">
+              <span>Dispatched at: {new Date(activeDispatch.dispatched_at).toLocaleTimeString()}</span>
+              <span>ID: DSC-{String(activeDispatch.dispatch_id).padStart(3, '0')}</span>
+            </div>
+
+            <button 
+              onClick={handleArrivedAtScene} 
+              disabled={statusUpdating}
+              className="btn-base w-full mt-2"
+              style={{ 
+                background: 'var(--safe)', 
+                color: 'white', 
+                height: 56, 
+                fontSize: 18, 
+                fontWeight: 800,
+                letterSpacing: '2px',
+                fontFamily: "'Barlow Condensed', sans-serif",
+                boxShadow: '0 4px 12px rgba(22, 163, 74, 0.3)'
+              }}
+            >
+              {statusUpdating ? <Loader2 className="animate-spin" /> : 'ARRIVED AT SCENE'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Ambulance Selector (non-ambulance roles) ────────────────────────── */}
       {currentUser?.role !== 'ambulance' && (

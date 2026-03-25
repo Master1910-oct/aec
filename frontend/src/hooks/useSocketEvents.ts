@@ -131,6 +131,23 @@ export const useSocketEvents = () => {
         ),
       }));
     };
+ 
+    // ── 7. 108 Dispatch to Scene (Ambulance) ─────────────────────────────────
+    const handleDispatchToScene = (data: any) => {
+      toast.error('NEW DISPATCH RECEIVED!', {
+        description: `Caller: ${data.caller_name} - Location: ${data.caller_location}`,
+        duration: 20000,
+      });
+      useStore.getState().setActiveDispatch(data);
+    };
+
+    // ── 8. Dispatch Confirmed (Admin) ────────────────────────────────────────
+    const handleDispatchConfirmed = (data: any) => {
+      toast.success('Dispatch Confirmed', {
+        description: `Ambulance ${data.unit_name} is en route to scene.`,
+      });
+      fetchDashboardStats();
+    };
 
     // ── Register listeners ────────────────────────────────────────────────────
     socket.on('connect', handleConnect);
@@ -141,6 +158,8 @@ export const useSocketEvents = () => {
     socket.on('emergency_acknowledged', handleEmergencyAcknowledged);
     socket.on('emergency_status_updated', handleEmergencyStatusUpdated);
     socket.on('ambulance_location_update', handleAmbulanceLocationUpdate);
+    socket.on('dispatch_to_scene', handleDispatchToScene);
+    socket.on('dispatch_confirmed', handleDispatchConfirmed);
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
     return () => {
@@ -152,6 +171,8 @@ export const useSocketEvents = () => {
       socket.off('emergency_acknowledged', handleEmergencyAcknowledged);
       socket.off('emergency_status_updated', handleEmergencyStatusUpdated);
       socket.off('ambulance_location_update', handleAmbulanceLocationUpdate);
+      socket.off('dispatch_to_scene', handleDispatchToScene);
+      socket.off('dispatch_confirmed', handleDispatchConfirmed);
 
       if (roomName) socket.emit('leave', { room: roomName });
     };

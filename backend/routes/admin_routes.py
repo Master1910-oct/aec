@@ -1,7 +1,7 @@
 from flask import Blueprint, request, g
 from datetime import datetime, timedelta
 from database.db import db
-from models import User, Hospital, Ambulance, Availability, EmergencyRequest
+from models import User, Hospital, Ambulance, Availability, EmergencyRequest, SceneDispatch
 from extensions.socketio_ext import socketio
 from utils.response import success_response, error_response
 from utils.decorators import token_required, roles_required
@@ -9,6 +9,7 @@ from services.allocation_service import allocate_hospital, allocate_ambulance
 from services.state_machine import EmergencyStateMachine
 import random
 import string
+from services.allocation_service import calculate_distance
 
 admin_bp = Blueprint("admin_bp", __name__, url_prefix="/api/v1/admin")
 
@@ -171,7 +172,123 @@ def dispatch_108():
             },
             status=201
         )
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e), 500)
 
+
+# ==========================================
+# 📞 108 DISPATCH TO SCENE (New Flow)
+# ==========================================
+@admin_bp.route("/dispatch-to-scene", methods=["POST"])
+@token_required
+@roles_required("admin")
+def dispatch_to_scene():
+    """
+    Step 3-6: Admin dispatches nearest AVAILABLE ambulance to scene.
+    Coordinates: Chennai center (13.0827, 80.2707)
+    """
+    try:
+        data = request.get_json()
+        required = ["caller_name", "callback_number", "description", "caller_location"]
+        if not data or not all(f in data for f in required):
+            return error_response(f"{', '.join(required)} are required", 400)
+
+        with db.session.begin_nested():
+            # Find nearest available ambulance
+            available_ambulances = Ambulance.query.filter_by(status="AVAILABLE").all()
+            if not available_ambulances:
+                return error_response("No available ambulances at this time", 400)
+
+            origin_lat, origin_lng = 13.0827, 80.2707
+            nearest_amb = None
+            min_dist = float('inf')
+
+            for amb in available_ambulances:
+                if amb.latitude is None or amb.longitude is None: continue
+                dist = calculate_distance(origin_lat, origin_lng, amb.latitude, amb.longitude)
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_amb = amb
+
+            if not nearest_amb:
+                # Fallback if no ambulance has GPS
+                nearest_amb = available_ambulances[0]
+
+            # Update ambulance status
+            nearest_amb.status = "DISPATCHED" # Using DISPATCHED as requested
+
+            # Create dispatch record
+            dispatch = SceneDispatch(
+                caller_name=data["caller_name"],
+                callback_number=data["callback_number"],
+                description=data["description"],
+                caller_location=data["caller_location"],
+                assigned_ambulance_id=nearest_amb.ambulance_id,
+                status='en_route_to_scene',
+                dispatched_at=datetime.utcnow()
+            )
+            db.session.add(dispatch)
+            db.session.flush() # Get ID
+
+            # Step 6: Emit to Ambulance
+            try:
+                payload = {
+                    "dispatch_id": dispatch.id,
+                    "caller_name": dispatch.caller_name,
+                    "callback_number": dispatch.callback_number,
+                    "description": dispatch.description,
+                    "caller_location": dispatch.caller_location,
+                    "unit_name": nearest_amb.vehicle_number,
+                    "dispatched_at": dispatch.dispatched_at.isoformat()
+                }
+                socketio.emit("dispatch_to_scene", payload, room=f"ambulance_{nearest_amb.ambulance_id}")
+            except Exception as e:
+                # Step 7: Rollback on socket failure is implicit via begin_nested() if I raise here
+                raise Exception(f"Socket emit failed: {str(e)}")
+
+        db.session.commit()
+
+        # Step 8: Emit to Admin
+        admin_payload = {
+            "dispatch_id": dispatch.id,
+            "ambulance_id": nearest_amb.ambulance_id,
+            "unit_name": nearest_amb.vehicle_number,
+            "caller_location": dispatch.caller_location
+        }
+        socketio.emit("dispatch_confirmed", admin_payload, room="admin")
+
+        return success_response(
+            message="Ambulance dispatched to scene",
+            data={
+                "dispatch_id": dispatch.id,
+                "unit_name": nearest_amb.vehicle_number
+            },
+            status=201
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e), 500)
+
+
+# ==========================================
+# ✅ MARK ARRIVAL AT SCENE (Ambulance Side)
+# ==========================================
+@admin_bp.route("/dispatch-to-scene/<int:dispatch_id>", methods=["PATCH"])
+@token_required
+@roles_required("ambulance")
+def mark_dispatch_arrival(dispatch_id):
+    try:
+        dispatch = SceneDispatch.query.get(dispatch_id)
+        if not dispatch:
+            return error_response("Dispatch record not found", 404)
+
+        dispatch.status = 'arrived'
+        dispatch.arrived_at = datetime.utcnow()
+        db.session.commit()
+
+        return success_response(message="Arrival confirmed")
     except Exception as e:
         db.session.rollback()
         return error_response(str(e), 500)
