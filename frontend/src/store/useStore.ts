@@ -296,10 +296,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateEmergencyStatus: async (emergencyId, status, additionalPayload = {}) => {
-    await api.post(`/api/v1/emergency/${emergencyId}/status`, { status, ...additionalPayload });
+    const res = await api.post<{ data: BackendEmergency }>(`/api/v1/emergency/${emergencyId}/status`, { status, ...additionalPayload });
+    const updated = res.data;
     set(s => ({
       emergencies: s.emergencies.map(e =>
-        e.emergency_id === emergencyId ? { ...e, status } : e
+        e.emergency_id === emergencyId ? updated : e
       ),
     }));
   },

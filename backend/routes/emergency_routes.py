@@ -258,11 +258,7 @@ def update_emergency_status(emergency_id):
 
         return success_response(
             message="Emergency status updated successfully",
-            data={
-                "emergency_id":    emergency_id,
-                "previous_status": previous_status,
-                "new_status":      new_status,
-            }
+            data=emergency.to_dict()
         )
 
     except Exception as e:
