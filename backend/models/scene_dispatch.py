@@ -9,6 +9,11 @@ class SceneDispatch(db.Model):
     callback_number       = db.Column(db.String(20), nullable=False)
     description           = db.Column(db.Text, nullable=False)
     caller_location       = db.Column(db.String(500), nullable=False)
+    
+    # Coordinates (needed for map routing)
+    latitude              = db.Column(db.Float, nullable=True)
+    longitude             = db.Column(db.Float, nullable=True)
+    
     assigned_ambulance_id = db.Column(db.Integer, db.ForeignKey("ambulances.ambulance_id"), nullable=False, index=True)
     
     status                = db.Column(
@@ -30,6 +35,8 @@ class SceneDispatch(db.Model):
             "callback_number":       self.callback_number,
             "description":           self.description,
             "caller_location":       self.caller_location,
+            "latitude":              self.latitude,
+            "longitude":             self.longitude,
             "assigned_ambulance_id": self.assigned_ambulance_id,
             "status":                self.status,
             "dispatched_at":         self.dispatched_at.isoformat() if self.dispatched_at else None,

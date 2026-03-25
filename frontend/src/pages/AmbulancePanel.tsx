@@ -265,12 +265,13 @@ export default function AmbulancePanel() {
   };
 
   // Map data
+  // Map data
   const mapAmbulances = lat && lon && effectiveAmbulanceId ? [{
     ambulance_id: effectiveAmbulanceId,
     vehicle_number: currentAmbulance?.vehicle_number ?? `Unit #${effectiveAmbulanceId}`,
     driver_name: currentAmbulance?.driver_name ?? null,
     latitude: parseFloat(lat), longitude: parseFloat(lon),
-    status: 'ON_CALL' as const,
+    status: (myActiveEmergency || activeDispatch) ? 'ON_CALL' as const : 'AVAILABLE' as const,
   }] : [];
 
   const mapHospitals = myActiveEmergency?.hospital ? [{
@@ -282,15 +283,29 @@ export default function AmbulancePanel() {
     status: 'GREEN' as const,
   }] : [];
 
-  const mapEmergencies = myActiveEmergency?.latitude && myActiveEmergency?.longitude ? [{
-    emergency_id: myActiveEmergency.emergency_id,
-    emergency_type: myActiveEmergency.emergency_type,
-    severity: myActiveEmergency.severity,
-    latitude: myActiveEmergency.latitude,
-    longitude: myActiveEmergency.longitude,
-    status: myActiveEmergency.status,
-    ambulance_id: effectiveAmbulanceId ?? undefined,
-  }] : [];
+  const mapEmergencies: any[] = [];
+  if (myActiveEmergency?.latitude && myActiveEmergency?.longitude) {
+    mapEmergencies.push({
+      ...myActiveEmergency,
+      ambulance_id: effectiveAmbulanceId,
+      ambulance_latitude: lat ? parseFloat(lat) : null,
+      ambulance_longitude: lon ? parseFloat(lon) : null,
+      hospital_latitude: myActiveEmergency.hospital?.latitude,
+      hospital_longitude: myActiveEmergency.hospital?.longitude,
+    });
+  } else if (activeDispatch?.latitude && activeDispatch?.longitude) {
+    mapEmergencies.push({
+      emergency_id: activeDispatch.dispatch_id,
+      emergency_type: 'Incident Site',
+      severity: 'critical',
+      latitude: activeDispatch.latitude,
+      longitude: activeDispatch.longitude,
+      status: 'dispatched',
+      ambulance_id: effectiveAmbulanceId,
+      ambulance_latitude: lat ? parseFloat(lat) : null,
+      ambulance_longitude: lon ? parseFloat(lon) : null,
+    });
+  }
 
   const isCritical = myActiveEmergency?.severity === 'critical';
 

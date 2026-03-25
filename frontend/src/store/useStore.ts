@@ -115,6 +115,8 @@ export interface ActiveDispatch {
   description: string;
   caller_location: string;
   dispatched_at: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface AppState {

@@ -218,12 +218,18 @@ def dispatch_to_scene():
             # Update ambulance status
             nearest_amb.status = "ON_CALL"
 
+            # Mocked destination (until geocoding is integrated)
+            dest_lat = 13.0827 + random.uniform(-0.02, 0.02)
+            dest_lng = 80.2707 + random.uniform(-0.02, 0.02)
+
             # Create dispatch record
             dispatch = SceneDispatch(
                 caller_name=data["caller_name"],
                 callback_number=data["callback_number"],
                 description=data["description"],
                 caller_location=data["caller_location"],
+                latitude=dest_lat,
+                longitude=dest_lng,
                 assigned_ambulance_id=nearest_amb.ambulance_id,
                 status='en_route_to_scene',
                 dispatched_at=datetime.utcnow()
@@ -239,6 +245,8 @@ def dispatch_to_scene():
                     "callback_number": dispatch.callback_number,
                     "description": dispatch.description,
                     "caller_location": dispatch.caller_location,
+                    "latitude": dispatch.latitude,
+                    "longitude": dispatch.longitude,
                     "unit_name": nearest_amb.vehicle_number,
                     "dispatched_at": dispatch.dispatched_at.isoformat()
                 }
