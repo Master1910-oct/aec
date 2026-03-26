@@ -471,7 +471,7 @@ export default function HospitalDashboard() {
                             )}
                             <span className="flex items-center gap-1">
                               <Clock size={11} />
-                              {e.created_at ? new Date(e.created_at).toLocaleTimeString('en-IN') : '—'}
+                              {e.created_at ? new Date((e.created_at || '').replace(' ', 'T') + ((e.created_at || '').endsWith('Z') ? '' : 'Z')).toLocaleTimeString('en-IN') : '—'}
                             </span>
                           </div>
                         </div>
@@ -513,7 +513,7 @@ export default function HospitalDashboard() {
                       {e.emergency_type} Emergency
                     </p>
                     <p style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                      {e.created_at ? new Date(e.created_at).toLocaleString('en-IN') : '—'}
+                      {e.created_at ? new Date((e.created_at || '').replace(' ', 'T') + ((e.created_at || '').endsWith('Z') ? '' : 'Z')).toLocaleString('en-IN') : '—'}
                     </p>
                   </div>
                   {e.ambulance && (
