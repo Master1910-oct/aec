@@ -57,8 +57,30 @@ def allocate_hospital(emergency, from_lat, from_lng):
         return None
 
     emergency_type = (emergency.emergency_type or "").strip().lower()
+    severity = (emergency.severity or "").strip().lower()
 
-    # ── PHASE 1: Specialist within radius ──────────────
+    # ── CRITICAL SEVERITY RULES ──────────────
+    # Critical means heading to the nearest hospital immediately
+    if severity == 'critical':
+        nearest_hospital = min(
+            all_hospitals,
+            key=lambda h: calculate_distance(from_lat, from_lng, h.latitude, h.longitude)
+        )
+        
+        # Checking capability: does the absolute nearest hospital have the required specialty?
+        has_capability = emergency_type in nearest_hospital.get_specialities_list()
+        
+        if nearest_hospital.availability:
+            nearest_hospital.availability.available_beds -= 1
+            
+        return {
+            "hospital": nearest_hospital,
+            "needs_transfer": not has_capability,
+            "required_speciality": None if has_capability else emergency.emergency_type,
+            "phase": 1 if has_capability else 2
+        }
+
+    # ── NON-CRITICAL: PHASE 1 Specialist within radius ──────────────
     specialist_matches = [
         h for h in all_hospitals
         if emergency_type in h.get_specialities_list()

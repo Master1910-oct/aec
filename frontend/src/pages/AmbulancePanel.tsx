@@ -406,7 +406,7 @@ export default function AmbulancePanel() {
             </div>
 
             <div className="flex items-center justify-between text-xs opacity-70">
-              <span>Dispatched at: {new Date(activeDispatch.dispatched_at).toLocaleTimeString()}</span>
+              <span>Dispatched at: {new Date((activeDispatch.dispatched_at || '').replace(' ', 'T') + ((activeDispatch.dispatched_at || '').endsWith('Z') ? '' : 'Z')).toLocaleTimeString()}</span>
               <span>ID: DSC-{String(activeDispatch.dispatch_id).padStart(3, '0')}</span>
             </div>
 
