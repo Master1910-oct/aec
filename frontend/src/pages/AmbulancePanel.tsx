@@ -80,11 +80,24 @@ export default function AmbulancePanel() {
   const { distanceKm, etaMin } = useMemo(() => {
     const aLat = parseFloat(lat);
     const aLon = parseFloat(lon);
-    if (!myActiveEmergency || isNaN(aLat) || isNaN(aLon) ||
-      !myActiveEmergency.latitude || !myActiveEmergency.longitude) {
+    if (!myActiveEmergency || isNaN(aLat) || isNaN(aLon)) {
       return { distanceKm: null, etaMin: null };
     }
-    const dist = haversineDistance(aLat, aLon, myActiveEmergency.latitude, myActiveEmergency.longitude);
+
+    let targetLat = myActiveEmergency.latitude;
+    let targetLon = myActiveEmergency.longitude;
+
+    // Once arrived at scene, distance should measure to destination hospital
+    if (['arrived', 'first_aid', 'transfer_en_route'].includes(myActiveEmergency.status) && myActiveEmergency.hospital) {
+        targetLat = myActiveEmergency.hospital.latitude;
+        targetLon = myActiveEmergency.hospital.longitude;
+    }
+
+    if (!targetLat || !targetLon) {
+        return { distanceKm: null, etaMin: null };
+    }
+
+    const dist = haversineDistance(aLat, aLon, targetLat, targetLon);
     return { distanceKm: dist, etaMin: estimateEta(dist, myActiveEmergency.severity) };
   }, [lat, lon, myActiveEmergency]);
 
