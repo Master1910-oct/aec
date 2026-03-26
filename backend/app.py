@@ -118,6 +118,10 @@ def create_app():
 
     from routes.setup_routes import setup_bp
     app.register_blueprint(setup_bp, url_prefix="/api/v1")
+    
+    # 🌟 Registering the newly created smart hospital selector
+    from hospital_selector import hospital_bp as smart_hospital_bp
+    app.register_blueprint(smart_hospital_bp)
 
     # ─────────────────────────────────────────
     # Background Tasks (must run in production too)
