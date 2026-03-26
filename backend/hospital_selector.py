@@ -1,6 +1,7 @@
 import math
 from flask import Blueprint, request, jsonify
-import mysql.connector
+import pymysql
+import pymysql.cursors
 from typing import List, Dict, Any
 
 hospital_bp = Blueprint('hospital_bp', __name__)
@@ -26,10 +27,11 @@ DISTANCE_WEIGHT = 0.6
 CAPABILITY_WEIGHT = 0.4
 MAX_DISTANCE_KM = 100.0
 
+
 def parse_capabilities(capabilities_str: str) -> List[str]:
     """
     Splits a comma-separated string into a cleaned list of capabilities.
-    
+
     :param capabilities_str: Comma-separated capabilities string
     :return: Cleaned list of uppercase capability strings
     """
@@ -37,10 +39,11 @@ def parse_capabilities(capabilities_str: str) -> List[str]:
         return []
     return [cap.strip().upper() for cap in capabilities_str.split(',') if cap.strip()]
 
+
 def filter_hospitals(hospitals: List[Dict[str, Any]], required_caps: List[str]) -> List[Dict[str, Any]]:
     """
     Returns hospitals containing ALL required capabilities.
-    
+
     :param hospitals: List of hospital dictionaries
     :param required_caps: List of required capabilities
     :return: Filtered list of hospitals meeting all capability requirements
@@ -54,10 +57,11 @@ def filter_hospitals(hospitals: List[Dict[str, Any]], required_caps: List[str]) 
             filtered.append(h)
     return filtered
 
+
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculates distance using the Haversine formula.
-    
+
     :param lat1: Latitude of point 1
     :param lon1: Longitude of point 1
     :param lat2: Latitude of point 2
@@ -74,15 +78,16 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     a = math.sin(delta_phi / 2.0) ** 2 + \
         math.cos(phi1) * math.cos(phi2) * \
         math.sin(delta_lambda / 2.0) ** 2
-    
+
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return R * c
 
+
 def rank_hospitals(hospitals: List[Dict[str, Any]], amb_lat: float, amb_lon: float) -> List[Dict[str, Any]]:
     """
     Sorts hospitals by distance ascending, attaches a calculated score.
-    
+
     :param hospitals: List of hospital dictionaries
     :param amb_lat: Ambulance latitude
     :param amb_lon: Ambulance longitude
@@ -96,37 +101,37 @@ def rank_hospitals(hospitals: List[Dict[str, Any]], amb_lat: float, amb_lon: flo
             h['distance_km'] = float('inf')
             h['score'] = 0.0
             continue
-            
+
         distance = calculate_distance(amb_lat, amb_lon, h_lat, h_lon)
         h['distance_km'] = round(distance, 2)
-        
-        # Calculate score (assume higher is better)
-        # Normalized distance: 1.0 (at 0 km) smoothly scaling down to 0.0 (at >= MAX_DISTANCE_KM)
+
+        # Normalized distance: 1.0 (at 0 km) scaling down to 0.0 (at >= MAX_DISTANCE_KM)
         norm_dist = max(0.0, 1.0 - (distance / MAX_DISTANCE_KM))
-        
+
         # Capability match ratio (pre-calculated or default to 1.0 if not set)
         ratio = h.get('capability_match_ratio', 1.0)
-        
+
         score = (DISTANCE_WEIGHT * norm_dist) + (CAPABILITY_WEIGHT * ratio)
         h['score'] = round(score, 4)
-        
+
     # Sort primarily by distance ascending
     return sorted(hospitals, key=lambda x: x['distance_km'])
+
 
 @hospital_bp.route('/get-best-hospital', methods=['POST'])
 def get_best_hospital():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON body"}), 400
-        
+
     amb_lat = data.get('latitude')
     amb_lon = data.get('longitude')
     emergency_type = data.get('emergency_type')
-    
+
     # Check for missing/null lat/lon
     if amb_lat is None or amb_lon is None:
         return jsonify({"error": "Missing or null latitude / longitude"}), 400
-        
+
     try:
         amb_lat = float(amb_lat)
         amb_lon = float(amb_lon)
@@ -139,43 +144,42 @@ def get_best_hospital():
             "error": "Invalid or unrecognized emergency_type",
             "valid_types": list(EMERGENCY_TYPE_MAPPING.keys())
         }), 400
-        
+
     required_caps = EMERGENCY_TYPE_MAPPING[emergency_type]
-    
+
     conn = None
     cursor = None
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        
+        conn = pymysql.connect(**DB_CONFIG, cursorclass=pymysql.cursors.DictCursor)
+        cursor = conn.cursor()
+
         # Fetch only active hospitals with non-null capabilities
         query = "SELECT * FROM hospital WHERE is_active = 1 AND capabilities IS NOT NULL"
         cursor.execute(query)
         all_hospitals = cursor.fetchall()
-        
-    except mysql.connector.Error as err:
+
+    except pymysql.Error as err:
         return jsonify({"error": f"Database error: {str(err)}"}), 500
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
+        if conn:
             conn.close()
-            
+
     if not all_hospitals:
         return jsonify({"error": "Empty hospital table or no active hospitals"}), 503
-        
-    # Process all fetched hospitals
+
+    # Skip hospitals with empty capabilities string gracefully
     valid_hospitals = []
     for h in all_hospitals:
         caps_str = h.get('capabilities')
         if not caps_str or not caps_str.strip():
-            # Skip gracefully if empty capabilities string
             continue
         valid_hospitals.append(h)
-        
+
     if not valid_hospitals:
-        return jsonify({"error": "Empty hospital table or no active hospitals"}), 503
-        
+        return jsonify({"error": "No active hospitals with valid capabilities"}), 503
+
     # Pre-calculate capability match ratio for scoring formula
     req_set = set([c.upper() for c in required_caps])
     for h in valid_hospitals:
@@ -186,40 +190,37 @@ def get_best_hospital():
             intersection = req_set.intersection(h_caps_set)
             h['capability_match_ratio'] = len(intersection) / len(req_set)
 
-    # Attempt to filter hospitals that match ALL required capabilities
+    # Filter hospitals that match ALL required capabilities
     matched_hospitals = filter_hospitals(valid_hospitals, required_caps)
-    
+
     fallback = False
-    
+
     if matched_hospitals:
         candidates = matched_hospitals
     else:
-        # Fallback Logic: if no hospital matches the required capabilities,
-        # return the nearest active hospital instead with fallback flag.
+        # Fallback: return nearest active hospital with fallback flag
         candidates = valid_hospitals
         fallback = True
-        
-    # Rank chosen candidates, calculating distance and score
+
+    # Rank candidates by distance and score
     ranked = rank_hospitals(candidates, amb_lat, amb_lon)
-    
+
     if not ranked:
         return jsonify({"error": "No valid hospitals to score and rank"}), 503
-        
+
     selected_hospital = ranked[0]
     selected_hospital['fallback'] = fallback
-    
+
     alternatives = ranked[1:4] if len(ranked) > 1 else []
-    
-    response = {
-        "selected_hospital": selected_hospital,
-        "alternatives": alternatives
-    }
-    
-    # We must format date times returning from MySQL before sending
+
+    # Format datetime fields for JSON serialization
     for hosp in [selected_hospital] + alternatives:
         if 'created_at' in hosp and hosp['created_at']:
             hosp['created_at'] = str(hosp['created_at'])
         if 'updated_at' in hosp and hosp['updated_at']:
             hosp['updated_at'] = str(hosp['updated_at'])
-    
-    return jsonify(response), 200
+
+    return jsonify({
+        "selected_hospital": selected_hospital,
+        "alternatives": alternatives
+    }), 200
