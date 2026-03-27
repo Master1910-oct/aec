@@ -76,9 +76,10 @@ export function useSyncManager(ambulanceId: number) {
   const triggerSync = useCallback(async () => {
     // 1. Read all pending records
     const unsynced = await getUnsyncedLocations(ambulanceId);
+    const pendingEmergencies = await getUnsyncedEmergencies(ambulanceId);
 
     // 2. Nothing to do → return early
-    if (unsynced.length === 0) return;
+    if (unsynced.length === 0 && pendingEmergencies.length === 0) return;
 
     // 3. Mark syncing in Zustand
     setSyncing(true);
